@@ -1,0 +1,122 @@
+@import "tailwindcss";
+
+/* ══════════════════════════════════════════════════════
+   NexServe — Modern Consumer Marketplace Design System
+   ══════════════════════════════════════════════════════ */
+
+@theme {
+  /* ── Brand Colors (Indigo / Slate Palette) ────────── */
+  --color-primary-50: #eef2ff;
+  --color-primary-100: #e0e7ff;
+  --color-primary-200: #c7d2fe;
+  --color-primary-300: #a5b4fc;
+  --color-primary-400: #818cf8;
+  --color-primary-500: #6366f1;
+  --color-primary-600: #4f46e5;
+  --color-primary-700: #4338ca;
+  --color-primary-800: #3730a3;
+  --color-primary-900: #312e81;
+  --color-primary-950: #1e1b4b;
+
+  --color-accent-400: #38bdf8;
+  --color-accent-500: #06b6d4;
+  --color-accent-600: #0891b2;
+
+  --color-success-400: #4ade80;
+  --color-success-500: #22c55e;
+  --color-success-600: #16a34a;
+
+  --color-warning-400: #fbbf24;
+  --color-warning-500: #f59e0b;
+
+  --color-error-400: #f87171;
+  --color-error-500: #ef4444;
+
+  /* ── Neutral Surface Colors (Sleek Slate Dark Theme) ── */
+  --color-surface-950: #090d16;
+  --color-surface-900: #0f172a;
+  --color-surface-850: #151e32;
+  --color-surface-800: #1e293b;
+  --color-surface-750: #273549;
+  --color-surface-700: #334155;
+  --color-surface-600: #475569;
+
+  /* ── Typography & Shadows ─────────────────────────── */
+  --font-sans: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+
+  /* ── Animations ───────────────────────────────────── */
+  --animate-fade-in: fade-in 0.3s ease-out;
+  --animate-slide-up: slide-up 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+  --animate-shimmer: shimmer 2s infinite linear;
+}
+
+/* ── Keyframes ──────────────────────────────────────── */
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slide-up {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+/* ── Base & Global Reset ────────────────────────────── */
+body {
+  background-color: var(--color-surface-950);
+  color: #f1f5f9;
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* ── Custom Utility Classes for UI Components ────────── */
+.glass-panel {
+  background: rgba(30, 41, 59, 0.7);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.glass-card {
+  background: rgba(21, 30, 50, 0.8);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.glass-card:hover {
+  border-color: rgba(99, 102, 241, 0.35);
+  box-shadow: 0 12px 30px -10px rgba(79, 70, 229, 0.18);
+  transform: translateY(-2px);
+}
+
+.skeleton {
+  background: linear-gradient(90deg, #1e293b 25%, #334155 50%, #1e293b 75%);
+  background-size: 200% 100%;
+  animation: shimmer 1.5s infinite;
+  border-radius: 0.5rem;
+}
+
+/* ── Custom Scrollbar ───────────────────────────────── */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--color-surface-950);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-surface-700);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-primary-500);
+}

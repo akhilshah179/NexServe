@@ -1,0 +1,17 @@
+{
+  "short_name": "NexServe",
+  "name": "NexServe — Multi-Service Booking Platform",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "type": "image/svg+xml",
+      "sizes": "512x512 192x192 64x64 32x32 24x24 16x16"
+    }
+  ],
+  "start_url": "/",
+  "background_color": "#0f0f23",
+  "theme_color": "#0f0f23",
+  "display": "standalone",
+  "orientation": "portrait",
+  "description": "Discover and book trusted home cleaning, AC repair, tutoring, fitness, plumbing, and electrical services instantly."
+}
