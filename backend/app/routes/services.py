@@ -6,7 +6,13 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
 from app.database import get_db
-from app.schemas.service import CategoryCreate, CategoryResponse, ServiceCreate, ServiceResponse
+from app.schemas.service import (
+    CategoryCreate,
+    CategoryResponse,
+    CategoryWithServicesResponse,
+    ServiceCreate,
+    ServiceResponse,
+)
 from app.schemas.user import UserResponse
 from app.services.service_service import (
     get_categories,
@@ -26,10 +32,14 @@ router = APIRouter(
 
 
 # ── Categories ───────────────────────────────────────────
-@router.get("/categories", response_model=List[CategoryResponse])
-def list_categories(db: Session = Depends(get_db)):
-    """List all service categories."""
-    return get_categories(db)
+@router.get("/categories", response_model=List[CategoryWithServicesResponse])
+def list_categories(
+    include_services: bool = Query(False, description="Whether to include active services in each category"),
+    db: Session = Depends(get_db),
+):
+    """List all service categories, optionally with their services."""
+    return get_categories(db, include_services=include_services)
+
 
 
 @router.get("/categories/{category_id}", response_model=CategoryResponse)

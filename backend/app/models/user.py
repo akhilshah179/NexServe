@@ -6,7 +6,7 @@ from enum import Enum
 from datetime import datetime, timezone
 from sqlalchemy import Column, Integer, String, Float, Boolean, DateTime, Text, Enum as SQLEnum
 from sqlalchemy.orm import relationship
-from app.database import Base
+from app.database import Base, FlexibleEnum
 
 
 class UserRole(str, Enum):
@@ -21,6 +21,11 @@ class VerificationStatus(str, Enum):
     REJECTED = "rejected"
 
 
+class UserBookingMode(str, Enum):
+    INSTANT_BOOKING = "instant_booking"
+    REQUEST_BOOKING = "request_booking"
+
+
 class User(Base):
     __tablename__ = "users"
 
@@ -31,11 +36,16 @@ class User(Base):
     full_name = Column(String, nullable=False)
     profile_image = Column(String, nullable=True)
     phone_number = Column(String, nullable=True)
-    role = Column(SQLEnum(UserRole), default=UserRole.CUSTOMER, nullable=False)
+    role = Column(FlexibleEnum(UserRole), default=UserRole.CUSTOMER, nullable=False)
     is_active = Column(Boolean, default=True, nullable=False)
 
+    # Referral Attributes
+    referral_code = Column(String, unique=True, index=True, nullable=True)
+    referral_credits = Column(Float, default=0.0, nullable=False)
+
     # Provider Specific Metadata & Verification
-    verification_status = Column(SQLEnum(VerificationStatus), default=VerificationStatus.APPROVED, nullable=False)
+    booking_mode = Column(FlexibleEnum(UserBookingMode), default=UserBookingMode.INSTANT_BOOKING, nullable=False)
+    verification_status = Column(FlexibleEnum(VerificationStatus), default=VerificationStatus.APPROVED, nullable=False)
     rejection_reason = Column(Text, nullable=True)
     bio = Column(Text, nullable=True)
     location = Column(String, nullable=True)
@@ -60,4 +70,5 @@ class User(Base):
     reviews = relationship("Review", back_populates="customer")
     addresses = relationship("Address", back_populates="user", cascade="all, delete-orphan")
     notifications = relationship("Notification", back_populates="user", cascade="all, delete-orphan")
-
+    referrals_made = relationship("Referral", foreign_keys="Referral.referrer_id", back_populates="referrer")
+    referral_received = relationship("Referral", foreign_keys="Referral.referred_user_id", back_populates="referred_user", uselist=False)

@@ -32,6 +32,22 @@ class BlockDateRequest(BaseModel):
 
 
 class TimeSlot(BaseModel):
-    time: str  # e.g., "10:00 AM"
+    time: str  # e.g., "09:00 AM - 10:00 AM"
+    start_time: Optional[str] = None  # "09:00"
+    end_time: Optional[str] = None  # "10:00"
     available: bool
     reason: Optional[str] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ProviderSlotsResponse(BaseModel):
+    date: str
+    provider_id: int
+    service_id: Optional[int] = None
+    duration_minutes: int = 60
+    is_working_day: bool = True
+    message: Optional[str] = None
+    slots: List[TimeSlot] = []
+
+    model_config = ConfigDict(from_attributes=True)

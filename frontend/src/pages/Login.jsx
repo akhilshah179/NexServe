@@ -40,8 +40,9 @@ export default function Login() {
   const handleGoogleSuccess = useCallback(async (credential) => {
     setIsSubmitting(true);
     setError("");
+    const refCode = new URLSearchParams(location.search).get("ref") || null;
     try {
-      const loggedUser = await loginWithGoogle(credential, selectedRole);
+      const loggedUser = await loginWithGoogle(credential, selectedRole, refCode);
       if (loggedUser.role === "admin") {
         navigate("/admin/dashboard");
       } else if (loggedUser.role === "provider") {
@@ -55,7 +56,7 @@ export default function Login() {
     } finally {
       setIsSubmitting(false);
     }
-  }, [loginWithGoogle, selectedRole, navigate]);
+  }, [loginWithGoogle, selectedRole, navigate, location.search]);
 
   const handleGoogleError = useCallback((errMsg) => {
     setError(errMsg || "Google sign-in encountered an error.");
@@ -64,9 +65,10 @@ export default function Login() {
   const handleDemoLogin = async (demoRole) => {
     setIsSubmitting(true);
     setError("");
+    const refCode = new URLSearchParams(location.search).get("ref") || null;
     try {
       const credential = `demo-${demoRole}`;
-      const loggedUser = await loginWithGoogle(credential, demoRole);
+      const loggedUser = await loginWithGoogle(credential, demoRole, refCode);
       if (loggedUser.role === "admin") {
         navigate("/admin/dashboard");
       } else if (loggedUser.role === "provider") {

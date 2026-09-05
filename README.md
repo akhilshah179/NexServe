@@ -498,7 +498,7 @@ Follow these step-by-step instructions to clone, configure, and run NexServe on 
 2. **Configure frontend environment variables:**
    ```bash
    # Windows
-   copy .env.example .env
+   cd frontend
 
    # macOS / Linux
    cp .env.example .env

@@ -16,6 +16,13 @@ from app.routes.notifications import router as notifications_router
 from app.routes.chat import router as chat_router
 from app.routes.emergency import router as emergency_router
 from app.routes.availability import router as availability_router
+from app.routes.ws import router as ws_router
+from app.routes.pricing import router as pricing_router
+from app.routes.coupons import router as coupons_router
+from app.routes.referrals import router as referrals_router
+from app.routes.recommendations import router as recommendations_router
+from app.routes.attachments import router as attachments_router
+from app.routes.rentals import router as rentals_router
 
 __all__ = [
     "health_router",
@@ -32,6 +39,11 @@ __all__ = [
     "chat_router",
     "emergency_router",
     "availability_router",
+    "ws_router",
+    "pricing_router",
+    "coupons_router",
+    "referrals_router",
+    "recommendations_router",
+    "attachments_router",
+    "rentals_router",
 ]
-
-

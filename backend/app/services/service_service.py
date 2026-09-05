@@ -9,9 +9,14 @@ from app.models.service import Category, Service
 from app.schemas.service import CategoryCreate, ServiceCreate
 
 
-def get_categories(db: Session) -> List[Category]:
-    """List all categories."""
+from sqlalchemy.orm import selectinload
+
+def get_categories(db: Session, include_services: bool = False) -> List[Category]:
+    """List all categories, optionally with their services eagerly loaded."""
+    if include_services:
+        return db.query(Category).options(selectinload(Category.services).selectinload(Service.provider)).all()
     return db.query(Category).all()
+
 
 
 def create_category(db: Session, category_in: CategoryCreate) -> Category:

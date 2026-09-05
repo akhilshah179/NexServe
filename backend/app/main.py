@@ -13,6 +13,7 @@ from app.database import Base, engine, SessionLocal
 import app.models  # Ensures all SQLAlchemy models are registered
 from app.models.service import Category, Service
 from app.models.user import User, UserRole, VerificationStatus
+from fastapi.staticfiles import StaticFiles
 from app.routes import (
     health_router,
     auth_router,
@@ -28,236 +29,330 @@ from app.routes import (
     chat_router,
     emergency_router,
     availability_router,
+    ws_router,
+    pricing_router,
+    coupons_router,
+    referrals_router,
+    recommendations_router,
+    attachments_router,
+    rentals_router,
 )
 
 
 
+
 # ── Database Initialization & Seeding ─────────────────────
+def _migrate_columns():
+    """Ensure newly added columns exist in existing database tables."""
+    from sqlalchemy import text
+    with engine.connect() as conn:
+        # Check users table columns
+        user_cols = {
+            "referral_code": "TEXT",
+            "referral_credits": "FLOAT DEFAULT 0.0",
+            "booking_mode": "TEXT DEFAULT 'instant_booking'",
+        }
+        for col, col_type in user_cols.items():
+            try:
+                conn.execute(text(f"ALTER TABLE users ADD COLUMN {col} {col_type}"))
+                conn.commit()
+            except Exception:
+                pass  # Column already exists
+
+        # Check bookings table columns
+        booking_cols = {
+            "booking_mode": "TEXT DEFAULT 'instant_booking'",
+            "base_price": "FLOAT",
+            "discount_amount": "FLOAT DEFAULT 0.0",
+            "referral_discount": "FLOAT DEFAULT 0.0",
+            "coupon_id": "INTEGER",
+            "pricing_breakdown": "TEXT",
+        }
+        for col, col_type in booking_cols.items():
+            try:
+                conn.execute(text(f"ALTER TABLE bookings ADD COLUMN {col} {col_type}"))
+                conn.commit()
+            except Exception:
+                pass  # Column already exists
+
+
 def init_db():
-    """Create database tables and seed default categories, providers, and services if empty."""
+    """Create database tables and seed default categories, providers, and services."""
+    _migrate_columns()
     Base.metadata.create_all(bind=engine)
 
     db = SessionLocal()
     try:
-        # ── Seed Categories ──────────────────────────────
-        if db.query(Category).count() == 0:
-            default_categories = [
-                Category(name="Home Cleaning", description="Professional home cleaning, deep cleaning, and sanitization services.", icon_url="🏠"),
-                Category(name="AC Repair", description="AC installation, repair, gas refill, and maintenance services.", icon_url="❄️"),
-                Category(name="Salon & Spa", description="Haircuts, styling, facials, massages, and grooming at your doorstep.", icon_url="💇"),
-                Category(name="Tutoring", description="Expert tutors for all subjects, exam prep, and skill development.", icon_url="📚"),
-                Category(name="Fitness Training", description="Personal trainers, yoga instructors, and nutritionists.", icon_url="💪"),
-                Category(name="Car Service", description="Car wash, detailing, repairs, and periodic maintenance.", icon_url="🚗"),
-                Category(name="Plumbing", description="Pipe repairs, installations, leak fixing, and drainage services.", icon_url="🔧"),
-                Category(name="Electrician", description="Wiring, repairs, appliance installation, and electrical inspections.", icon_url="⚡"),
-                Category(name="Painting", description="Interior and exterior painting, texture work, and waterproofing.", icon_url="🎨"),
-                Category(name="Pest Control", description="Termite treatment, cockroach control, and general pest management.", icon_url="🪲"),
-                Category(name="Packers & Movers", description="Packing, loading, transport, and unpacking for home and office.", icon_url="📦"),
-                Category(name="Laundry", description="Washing, ironing, dry cleaning, and stain removal services.", icon_url="🧹"),
-            ]
-            db.add_all(default_categories)
-            db.commit()
 
-        # ── Seed Providers & Services ────────────────────
-        if db.query(User).filter(User.role == UserRole.PROVIDER).count() == 0:
-            _seed_providers_and_services(db)
+        # Standardize 10 primary categories
+        target_categories = [
+            {"name": "Home Cleaning", "description": "Deep cleaning, kitchen, bathroom, and sofa sanitization services.", "icon_url": "🏠"},
+            {"name": "AC Repair & Services", "description": "AC repair, installation, maintenance, and gas refilling.", "icon_url": "❄️"},
+            {"name": "Salon & Beauty", "description": "Haircuts, styling, facials, coloring, and grooming at home.", "icon_url": "💇"},
+            {"name": "Plumbing", "description": "Pipe repairs, installations, leak fixing, and drainage services.", "icon_url": "🔧"},
+            {"name": "Electrical", "description": "Wiring, fixture installation, panel repair, and safety checks.", "icon_url": "⚡"},
+            {"name": "Car Services", "description": "Car detailing, periodic maintenance, battery care, and wash.", "icon_url": "🚗"},
+            {"name": "Tutoring", "description": "Expert 1-on-1 tutors for STEM, exam prep, languages, and coding.", "icon_url": "📚"},
+            {"name": "Fitness", "description": "Personal trainers, yoga instructors, HIIT, and posture coaches.", "icon_url": "💪"},
+            {"name": "Pest Control", "description": "Termite treatment, cockroach elimination, and pest management.", "icon_url": "🪲"},
+            {"name": "Laundry", "description": "Wash & iron, dry cleaning, shoe care, and curtain washing.", "icon_url": "🧹"},
+        ]
+
+        # Ensure all 10 categories exist
+        category_map = {}
+        for cat_info in target_categories:
+            cat = db.query(Category).filter(Category.name.ilike(cat_info["name"])).first()
+            # Also check old alias names
+            if not cat:
+                if cat_info["name"] == "AC Repair & Services":
+                    cat = db.query(Category).filter(Category.name.ilike("AC Repair")).first()
+                elif cat_info["name"] == "Salon & Beauty":
+                    cat = db.query(Category).filter(Category.name.ilike("Salon & Spa")).first()
+                elif cat_info["name"] == "Electrical":
+                    cat = db.query(Category).filter(Category.name.ilike("Electrician")).first()
+                elif cat_info["name"] == "Fitness":
+                    cat = db.query(Category).filter(Category.name.ilike("Fitness Training")).first()
+                elif cat_info["name"] == "Car Services":
+                    cat = db.query(Category).filter(Category.name.ilike("Car Service")).first()
+
+            if cat:
+                cat.name = cat_info["name"]
+                cat.description = cat_info["description"]
+                cat.icon_url = cat_info["icon_url"]
+            else:
+                cat = Category(
+                    name=cat_info["name"],
+                    description=cat_info["description"],
+                    icon_url=cat_info["icon_url"],
+                )
+                db.add(cat)
+            db.flush()
+            category_map[cat_info["name"]] = cat
+
+        db.commit()
+
+        _seed_providers_and_services(db, category_map)
+
+        # Seed default coupons, referral codes, provider availability, and rental marketplace catalog
+        from app.services.coupon_service import seed_default_coupons
+        from app.services.referral_service import ensure_user_referral_code
+        from app.services.availability_service import seed_default_provider_availability
+        from app.services.rental_seed_service import seed_default_rentals
+        seed_default_coupons(db)
+        seed_default_provider_availability(db)
+        seed_default_rentals(db)
+
+        for u in db.query(User).all():
+            ensure_user_referral_code(db, u)
 
     finally:
         db.close()
 
 
-def _seed_providers_and_services(db):
-    """Seed realistic provider users and their service offerings."""
-    categories = {cat.name: cat.id for cat in db.query(Category).all()}
 
-    # Provider profiles: (name, email, bio, location, rating, review_count, experience_years, hourly_rate)
-    providers_data = [
-        # Home Cleaning
-        ("Priya Sharma", "priya.sharma@nexserve.com", "Expert in deep cleaning and sanitization with 5+ years of experience.", "Koramangala, Bengaluru", 4.9, 156, 5, 499),
-        ("Rahul Verma", "rahul.verma@nexserve.com", "Professional home cleaning specialist covering all Bengaluru areas.", "Indiranagar, Bengaluru", 4.7, 98, 3, 399),
+def _seed_providers_and_services(db, category_map):
+    """Seed 3 verified providers per category (30 total) with realistic data and promo coupons."""
+    providers_specs = [
+        # (Category, Name, Email, Bio, Location, Lat, Lng, Rating, Reviews, Exp, HourlyRate, BookingMode)
+        # 1. Home Cleaning
+        ("Home Cleaning", "Priya Sharma", "priya.sharma@nexserve.com", "Expert in deep cleaning, kitchen sanitization, and eco-friendly home care.", "Koramangala, Bengaluru", 12.9352, 77.6245, 4.9, 156, 5, 499, "instant_booking"),
+        ("Home Cleaning", "Rahul Verma", "rahul.verma@nexserve.com", "Professional residential cleaning specialist covering central and east Bengaluru.", "Indiranagar, Bengaluru", 12.9784, 77.6408, 4.7, 98, 3, 399, "instant_booking"),
+        ("Home Cleaning", "Geetha Nambiar", "geetha.nambiar@nexserve.com", "Master housekeeping, upholstery stain removal, and villa deep cleaning expert.", "HSR Layout, Bengaluru", 12.9121, 77.6446, 4.8, 142, 6, 449, "request_booking"),
 
-        # AC Repair
-        ("Suresh Kumar", "suresh.kumar@nexserve.com", "Certified AC technician for all brands — Samsung, LG, Daikin, Voltas.", "HSR Layout, Bengaluru", 4.8, 210, 7, 599),
-        ("Deepak Singh", "deepak.singh@nexserve.com", "AC installation, gas refill, and annual maintenance expert.", "Whitefield, Bengaluru", 4.6, 87, 4, 549),
+        # 2. AC Repair & Services
+        ("AC Repair & Services", "Suresh Kumar", "suresh.kumar@nexserve.com", "Certified multi-brand AC technician — Daikin, Voltas, Samsung, LG.", "HSR Layout, Bengaluru", 12.9121, 77.6446, 4.8, 210, 7, 599, "instant_booking"),
+        ("AC Repair & Services", "Deepak Singh", "deepak.singh@nexserve.com", "AC installation, precision copper piping, gas refilling & tuning specialist.", "Whitefield, Bengaluru", 12.9698, 77.7500, 4.6, 87, 4, 549, "instant_booking"),
+        ("AC Repair & Services", "Rajesh Gowda", "rajesh.gowda@nexserve.com", "Inverter AC specialist, PCB board diagnostics, and jet pump deep coil wash.", "Electronic City, Bengaluru", 12.8452, 77.6602, 4.9, 175, 8, 649, "request_booking"),
 
-        # Salon & Spa
-        ("Ananya Patel", "ananya.patel@nexserve.com", "Celebrity hairstylist offering premium salon services at your home.", "JP Nagar, Bengaluru", 4.9, 312, 8, 799),
-        ("Meera Reddy", "meera.reddy@nexserve.com", "Bridal makeup artist and spa therapist with international training.", "MG Road, Bengaluru", 4.8, 245, 6, 699),
+        # 3. Salon & Beauty
+        ("Salon & Beauty", "Ananya Patel", "ananya.patel@nexserve.com", "Celebrity hairstylist & cosmetologist offering premium salon treatments at home.", "JP Nagar, Bengaluru", 12.9063, 77.5857, 4.9, 312, 8, 799, "instant_booking"),
+        ("Salon & Beauty", "Meera Reddy", "meera.reddy@nexserve.com", "Bridal makeup artist, facial rejuvenation specialist, and licensed aesthetician.", "MG Road, Bengaluru", 12.9756, 77.6094, 4.8, 245, 6, 699, "instant_booking"),
+        ("Salon & Beauty", "Divya Krishnan", "divya.krishnan@nexserve.com", "Certified hair colorist, organic fruit facials, and manicure/pedicure specialist.", "Jayanagar, Bengaluru", 12.9308, 77.5838, 4.7, 189, 5, 599, "request_booking"),
 
-        # Tutoring
-        ("Dr. Arun Nair", "arun.nair@nexserve.com", "PhD in Mathematics — teaches JEE, NEET, and board exam preparation.", "Electronic City, Bengaluru", 4.9, 178, 10, 899),
-        ("Sneha Gupta", "sneha.gupta@nexserve.com", "English and Science tutor with experience teaching CBSE and ICSE curricula.", "Marathahalli, Bengaluru", 4.7, 134, 5, 649),
+        # 4. Plumbing
+        ("Plumbing", "Mohammed Ismail", "ismail.plumber@nexserve.com", "Master plumber — pipe fitting, geyser lines, and high-pressure leak repairs.", "Rajajinagar, Bengaluru", 12.9982, 77.5530, 4.8, 198, 12, 449, "instant_booking"),
+        ("Plumbing", "Ganesh Hegde", "ganesh.hegde@nexserve.com", "Drain unblocking, sanitary ware fixture setup, and motor pump overhaul.", "Yelahanka, Bengaluru", 13.1007, 77.5963, 4.6, 89, 4, 399, "instant_booking"),
+        ("Plumbing", "Basavaraj Patil", "basavaraj.patil@nexserve.com", "Commercial & residential plumbing installations with 10+ years experience.", "BTM Layout, Bengaluru", 12.9166, 77.6101, 4.9, 230, 11, 499, "request_booking"),
 
-        # Fitness Training
-        ("Vikram Joshi", "vikram.joshi@nexserve.com", "Certified personal trainer and sports nutritionist — CrossFit & HIIT.", "Jayanagar, Bengaluru", 4.8, 189, 6, 749),
-        ("Kavya Rao", "kavya.rao@nexserve.com", "Yoga instructor certified by Isha Foundation. Hatha and Vinyasa styles.", "Malleshwaram, Bengaluru", 4.9, 223, 8, 599),
+        # 5. Electrical
+        ("Electrical", "Srinivas Murthy", "srinivas.electric@nexserve.com", "Licensed electrician — whole-house rewiring, MCB panels, inverter & UPS setup.", "Banashankari, Bengaluru", 12.9255, 77.5468, 4.8, 176, 10, 499, "instant_booking"),
+        ("Electrical", "Naveen Prakash", "naveen.electric@nexserve.com", "Smart home electrical switchboards, appliance hookup, and load safety testing.", "Sarjapur Road, Bengaluru", 12.9237, 77.6877, 4.7, 134, 6, 549, "instant_booking"),
+        ("Electrical", "Chandrashekar K", "chandra.electric@nexserve.com", "Industrial & domestic electrician, 3-phase line wiring, and earthing specialist.", "Malleshwaram, Bengaluru", 13.0031, 77.5643, 4.9, 215, 9, 599, "request_booking"),
 
-        # Car Service
-        ("AutoCare Pros - Karthik", "karthik.auto@nexserve.com", "Complete car care — detailing, denting, painting, and periodic service.", "BTM Layout, Bengaluru", 4.7, 167, 9, 899),
-        ("SpeedFix Garage - Ravi", "ravi.speedfix@nexserve.com", "Multi-brand car repair specialist with doorstep pickup and delivery.", "Hebbal, Bengaluru", 4.6, 112, 5, 799),
+        # 6. Car Services
+        ("Car Services", "Karthik Sundaram", "karthik.auto@nexserve.com", "Complete doorstep car detailing, paint correction, interior foam wash.", "BTM Layout, Bengaluru", 12.9166, 77.6101, 4.7, 167, 9, 899, "instant_booking"),
+        ("Car Services", "Ravi Teja", "ravi.speedfix@nexserve.com", "Periodic car maintenance, synthetic engine oil change, and 30-point inspection.", "Hebbal, Bengaluru", 13.0358, 77.5970, 4.6, 112, 5, 799, "instant_booking"),
+        ("Car Services", "Manjunath Auto", "manjunath.auto@nexserve.com", "Brake overhaul, battery diagnostic replacement, and underbody anti-rust coating.", "Marathahalli, Bengaluru", 12.9591, 77.6974, 4.8, 145, 8, 849, "request_booking"),
 
-        # Plumbing
-        ("Mohammed Ismail", "ismail.plumber@nexserve.com", "Master plumber — pipe fitting, leak repair, bathroom renovation.", "Rajajinagar, Bengaluru", 4.8, 198, 12, 449),
-        ("Ganesh Hegde", "ganesh.hegde@nexserve.com", "Plumbing and drainage solutions for residential and commercial properties.", "Yelahanka, Bengaluru", 4.6, 89, 4, 399),
+        # 7. Tutoring
+        ("Tutoring", "Dr. Arun Nair", "arun.nair@nexserve.com", "PhD in Mathematics — coaching for JEE Advanced, NEET Physics, and Olympiads.", "Electronic City, Bengaluru", 12.8452, 77.6602, 4.9, 178, 10, 899, "instant_booking"),
+        ("Tutoring", "Sneha Gupta", "sneha.gupta@nexserve.com", "STEM, Coding, and English communication tutor for CBSE, ICSE & IGCSE students.", "Marathahalli, Bengaluru", 12.9591, 77.6974, 4.7, 134, 5, 649, "instant_booking"),
+        ("Tutoring", "Prof. Ranganathan", "ranga.tutor@nexserve.com", "University physics & mathematics lecturer offering 1-on-1 conceptual mastery.", "Koramangala, Bengaluru", 12.9352, 77.6245, 4.9, 195, 14, 999, "request_booking"),
 
-        # Electrician
-        ("Srinivas Murthy", "srinivas.electric@nexserve.com", "Licensed electrician — wiring, MCB panel, inverter and UPS installation.", "Banashankari, Bengaluru", 4.8, 176, 10, 499),
-        ("Naveen Prakash", "naveen.electric@nexserve.com", "Smart home automation and electrical safety inspection specialist.", "Sarjapur Road, Bengaluru", 4.7, 134, 6, 549),
+        # 8. Fitness
+        ("Fitness", "Vikram Joshi", "vikram.joshi@nexserve.com", "Certified personal trainer and sports nutritionist — HIIT, strength & hypertrophy.", "Jayanagar, Bengaluru", 12.9308, 77.5838, 4.8, 189, 6, 749, "instant_booking"),
+        ("Fitness", "Kavya Rao", "kavya.rao@nexserve.com", "Hatha & Vinyasa Yoga instructor certified by Isha Foundation. Stress relief & core.", "Malleshwaram, Bengaluru", 13.0031, 77.5643, 4.9, 223, 8, 599, "instant_booking"),
+        ("Fitness", "Tanmay Sen", "tanmay.sen@nexserve.com", "CrossFit level 2 coach and body transformation specialist with custom diet plans.", "Indiranagar, Bengaluru", 12.9784, 77.6408, 4.7, 115, 5, 699, "request_booking"),
 
-        # Painting
-        ("ColorCraft - Ajay", "ajay.colorcraft@nexserve.com", "Premium interior painting, texture finishes, and wall art specialist.", "Basavanagudi, Bengaluru", 4.8, 145, 8, 599),
-        ("PaintPro - Manish", "manish.paintpro@nexserve.com", "Full house painting with Asian Paints and Berger. Waterproofing expert.", "KR Puram, Bengaluru", 4.6, 98, 5, 499),
+        # 9. Pest Control
+        ("Pest Control", "Sunil SafeGuard", "sunil.safeguard@nexserve.com", "Eco-friendly herbal gel pest management for cockroaches, ants, and bed bugs.", "Koramangala, Bengaluru", 12.9352, 77.6245, 4.7, 134, 7, 699, "instant_booking"),
+        ("Pest Control", "Amit Sharma", "amit.pestfree@nexserve.com", "Termite barrier drill-fill-seal treatment and residential pest elimination.", "Whitefield, Bengaluru", 12.9698, 77.7500, 4.5, 76, 4, 599, "instant_booking"),
+        ("Pest Control", "Ramesh PestCare", "ramesh.pestcare@nexserve.com", "Odorless whole-house fogging and commercial pest control with 1-year warranty.", "Rajajinagar, Bengaluru", 12.9982, 77.5530, 4.8, 160, 9, 749, "request_booking"),
 
-        # Pest Control
-        ("SafeGuard Pest - Sunil", "sunil.safeguard@nexserve.com", "Eco-friendly pest control — termite, cockroach, bed bugs, and rodents.", "Koramangala, Bengaluru", 4.7, 134, 7, 699),
-        ("PestFree Solutions - Amit", "amit.pestfree@nexserve.com", "Commercial and residential pest management with annual maintenance.", "Whitefield, Bengaluru", 4.5, 76, 4, 599),
-
-        # Packers & Movers
-        ("SwiftMove - Rajesh", "rajesh.swiftmove@nexserve.com", "End-to-end relocation services — packing, transport, and setup.", "HSR Layout, Bengaluru", 4.8, 212, 10, 1499),
-        ("EasyShift - Pankaj", "pankaj.easyshift@nexserve.com", "Local and intercity moving with insurance and real-time tracking.", "Electronic City, Bengaluru", 4.6, 145, 6, 1299),
-
-        # Laundry
-        ("FreshFold - Lakshmi", "lakshmi.freshfold@nexserve.com", "Premium laundry and dry cleaning with free pickup and delivery.", "Indiranagar, Bengaluru", 4.8, 189, 5, 299),
-        ("CleanPress - Arjun", "arjun.cleanpress@nexserve.com", "Wash, iron, and stain removal services. Same-day delivery available.", "JP Nagar, Bengaluru", 4.7, 123, 3, 249),
+        # 10. Laundry
+        ("Laundry", "Lakshmi Devi", "lakshmi.freshfold@nexserve.com", "Premium doorstep wash, fold, crisp steam iron, and fabric care.", "Indiranagar, Bengaluru", 12.9784, 77.6408, 4.8, 189, 5, 299, "instant_booking"),
+        ("Laundry", "Arjun CleanPress", "arjun.cleanpress@nexserve.com", "Dry cleaning suits, designer garments, delicate silk saree care, and shoe wash.", "JP Nagar, Bengaluru", 12.9063, 77.5857, 4.7, 123, 3, 249, "instant_booking"),
+        ("Laundry", "Pooja WashWorks", "pooja.washworks@nexserve.com", "Heavy curtain wash, wool quilt sanitation, and express 24h doorstep laundry.", "HSR Layout, Bengaluru", 12.9121, 77.6446, 4.9, 140, 6, 349, "request_booking"),
     ]
 
-    # Map provider index to category name
-    provider_category_map = [
-        "Home Cleaning", "Home Cleaning",
-        "AC Repair", "AC Repair",
-        "Salon & Spa", "Salon & Spa",
-        "Tutoring", "Tutoring",
-        "Fitness Training", "Fitness Training",
-        "Car Service", "Car Service",
-        "Plumbing", "Plumbing",
-        "Electrician", "Electrician",
-        "Painting", "Painting",
-        "Pest Control", "Pest Control",
-        "Packers & Movers", "Packers & Movers",
-        "Laundry", "Laundry",
-    ]
+    # Create or update provider users
+    provider_objects = {}
+    for cat_name, name, email, bio, loc, lat, lng, rat, rev, exp, rate, b_mode in providers_specs:
+        user = db.query(User).filter(User.email == email).first()
+        if not user:
+            user = User(
+                email=email,
+                full_name=name,
+                role=UserRole.PROVIDER,
+                is_active=True,
+                google_id=f"seed-{email}",
+                bio=bio,
+                location=loc,
+                latitude=lat,
+                longitude=lng,
+                rating=rat,
+                review_count=rev,
+                experience_years=exp,
+                hourly_rate=rate,
+                booking_mode=b_mode,
+            )
+            db.add(user)
+            db.flush()
+        else:
+            user.full_name = name
+            user.role = UserRole.PROVIDER
+            user.is_active = True
+            user.bio = bio
+            user.location = loc
+            user.latitude = lat
+            user.longitude = lng
+            user.rating = rat
+            user.review_count = rev
+            user.experience_years = exp
+            user.hourly_rate = rate
+            user.booking_mode = b_mode
+        if cat_name not in provider_objects:
+            provider_objects[cat_name] = []
+        provider_objects[cat_name].append(user)
 
-    # Service offerings per category
-    services_per_category = {
+    db.commit()
+
+    # 4 Services per Category specifications: (title, description, price, duration_mins)
+    services_catalog = {
         "Home Cleaning": [
-            ("Full Home Deep Cleaning", "Complete deep cleaning of all rooms, kitchen, and bathrooms with eco-friendly products.", 60),
-            ("Kitchen & Bathroom Cleaning", "Thorough cleaning and sanitization of kitchen and bathroom areas.", 45),
+            ("Deep Cleaning", "Full home intensive deep cleaning covering living areas, bedrooms, scrubbing, and sanitization.", 1499.0, 180),
+            ("Kitchen Cleaning", "Thorough degreasing of chimney, stovetop, countertops, cabinets, and floor scrubbing.", 699.0, 90),
+            ("Bathroom Cleaning", "Deep stain removal, tile descaling, toilet & fixture disinfection, and mirror shine.", 499.0, 60),
+            ("Sofa Cleaning", "Shampooing, vacuuming, and fabric stain removal for 3-5 seater sofas and cushions.", 599.0, 60),
         ],
-        "AC Repair": [
-            ("AC Service & Gas Refill", "Complete AC servicing including filter cleaning, gas top-up, and performance check.", 60),
-            ("AC Installation / Uninstallation", "Professional split/window AC mounting, copper piping, and electrical setup.", 90),
+        "AC Repair & Services": [
+            ("AC Repair", "Comprehensive troubleshooting, electrical diagnostics, capacitor, fan, and PCB repair.", 599.0, 60),
+            ("AC Installation", "Professional split/window AC indoor & outdoor mounting, copper piping, and testing.", 1199.0, 90),
+            ("AC Maintenance", "Full filter wash, cooling coil cleaning, jet pump wash, and performance tuning.", 499.0, 45),
+            ("Gas Refilling", "Refrigerant leak detection, pressure testing, and complete R32/R410A gas top-up.", 1899.0, 60),
         ],
-        "Salon & Spa": [
-            ("Haircut & Styling", "Professional haircut, blow dry, and styling at your doorstep.", 45),
-            ("Full Body Spa & Massage", "Relaxing full body massage with aromatherapy oils and hot towel treatment.", 90),
-        ],
-        "Tutoring": [
-            ("One-on-One Subject Tutoring", "Personalized tutoring session for any subject — Math, Science, English.", 60),
-            ("Exam Prep Crash Course", "Intensive exam preparation session with practice tests and strategies.", 90),
-        ],
-        "Fitness Training": [
-            ("Personal Training Session", "Custom workout session with form correction and progress tracking.", 60),
-            ("Yoga & Meditation Class", "Guided yoga flow with breathing exercises and mindfulness meditation.", 60),
-        ],
-        "Car Service": [
-            ("Full Car Detailing", "Interior vacuuming, dashboard polish, exterior wash, wax, and tire shine.", 120),
-            ("Periodic Car Service", "Engine oil change, filter replacement, brake check, and multi-point inspection.", 180),
+        "Salon & Beauty": [
+            ("Haircut", "Custom salon haircut, hair wash, scalp massage, and precision styling at home.", 399.0, 45),
+            ("Hair Styling", "Blow dry, curling, straightening, and event hair styling with premium products.", 699.0, 60),
+            ("Facial", "Organic brightening & deep cleansing facial, exfoliating scrub, and hydration mask.", 899.0, 75),
+            ("Hair Coloring", "Root touch-up, global hair color, or balayage highlights using ammonia-free dyes.", 1299.0, 90),
         ],
         "Plumbing": [
-            ("Leak Repair & Pipe Fixing", "Emergency leak repair, pipe replacement, and joint sealing.", 45),
-            ("Bathroom Fixture Installation", "Installation of taps, showers, water heaters, and toilet fittings.", 60),
+            ("Leak Repair & Pipe Fixing", "Emergency pipe leak detection, sealant application, and pipe section replacement.", 399.0, 45),
+            ("Bathroom Fixture Installation", "Installation of washbasins, showers, mixer taps, diverters, and towel rails.", 499.0, 60),
+            ("Drain & Toilet Unclogging", "High-pressure drain jetting and toilet blockage clearance without tile damage.", 549.0, 60),
+            ("Water Heater & Geyser Service", "Geyser element descaling, thermostat repair, inlet/outlet valve replacement.", 649.0, 60),
         ],
-        "Electrician": [
-            ("Wiring & Switchboard Repair", "Electrical wiring, switchboard installation, and MCB panel setup.", 60),
-            ("Appliance Installation", "Installation of fans, lights, geysers, and home automation devices.", 45),
+        "Electrical": [
+            ("Wiring & Switchboard Repair", "Short-circuit troubleshooting, modular switchboard repair, and load testing.", 399.0, 45),
+            ("Ceiling Fan & Light Installation", "Mounting and connection of ceiling fans, chandeliers, spotlights, and LEDs.", 299.0, 30),
+            ("MCB Panel & Fuse Repair", "Main breaker replacement, MCB tripping resolution, and grounding check.", 599.0, 60),
+            ("Appliance Setup & Inverter Service", "Heavy appliance electrical hookup, inverter battery check, and rewiring.", 699.0, 60),
         ],
-        "Painting": [
-            ("Full Room Painting", "Complete room painting with primer, two coats, and edge finishing.", 240),
-            ("Texture & Accent Wall", "Decorative texture finish or accent wall design with premium paints.", 180),
+        "Car Services": [
+            ("Full Car Detailing", "Interior deep vacuuming, steam sanitization, exterior clay bar, and ceramic polish.", 1999.0, 180),
+            ("Periodic Car Maintenance", "Engine oil replacement, oil filter, air filter, brake inspection, and 30-point check.", 2499.0, 240),
+            ("Brake & Battery Service", "Brake pad inspection, brake fluid top-up, battery health check, and terminal cleanup.", 799.0, 60),
+            ("Car Wash & Exterior Wax", "High pressure foam wash, underbody cleaning, tire dressing, and carnauba wax shine.", 699.0, 60),
+        ],
+        "Tutoring": [
+            ("Mathematics & Science 1-on-1", "Personalized academic mentoring, concept clarity, and homework problem-solving.", 899.0, 60),
+            ("Board & Exam Prep (JEE/NEET)", "Targeted exam strategy, previous years question analysis, and speed drills.", 1199.0, 90),
+            ("English & Communication Coaching", "Spoken English fluency, vocabulary building, grammar, and essay writing.", 699.0, 60),
+            ("Coding & Computer Science", "Hands-on coding lessons in Python, JavaScript, and algorithmic problem solving.", 999.0, 60),
+        ],
+        "Fitness": [
+            ("Personal Fitness Training", "Tailored strength & hypertrophy workout, posture correction, and workout roadmap.", 749.0, 60),
+            ("Yoga & Meditation Flow", "Pranayama breathwork, asana alignment, stress relief, and mindfulness meditation.", 599.0, 60),
+            ("Weight Loss & HIIT Coaching", "High-intensity metabolic conditioning, calorie burn circuit, and nutrition tips.", 799.0, 60),
+            ("Posture & Core Conditioning", "Lower back strengthening, ergonomic mobility exercises, and core stability.", 649.0, 60),
         ],
         "Pest Control": [
-            ("General Pest Control", "Treatment for cockroaches, ants, spiders, and common household pests.", 60),
-            ("Termite Treatment", "Anti-termite chemical treatment for walls, doors, and wooden furniture.", 120),
-        ],
-        "Packers & Movers": [
-            ("Local House Shifting", "Complete packing, loading, transport, unloading, and unpacking within city.", 480),
-            ("Office Relocation", "Professional office moving with IT equipment handling and furniture disassembly.", 480),
+            ("General Pest Control", "Eco-friendly herbal gel baiting and odorless spray for cockroaches, ants & spiders.", 699.0, 60),
+            ("Termite Inspection & Treatment", "Drill-fill-seal barrier treatment protecting wooden fixtures and foundation.", 1499.0, 120),
+            ("Cockroach & Bed Bug Elimination", "Specialized dual-session steam and chemical eradication with 6-month warranty.", 899.0, 60),
+            ("Mosquito & Rodent Management", "Indoor thermal fogging, trap placement, and pest entry point blocking.", 799.0, 60),
         ],
         "Laundry": [
-            ("Wash & Iron (10 items)", "Machine wash and professional ironing for up to 10 garments.", 30),
-            ("Dry Cleaning (5 items)", "Premium dry cleaning service for delicate fabrics and formal wear.", 30),
+            ("Wash, Fold & Iron Bundle", "Machine washing with fabric conditioner and steam crisp ironing for 10-15 items.", 299.0, 30),
+            ("Premium Dry Cleaning", "Gentle solvent care, stain extraction, and packaging for suits, blazers & silks.", 599.0, 30),
+            ("Shoe Cleaning & Care", "Deep scrub, midsole whitening, deodorization, and suede protection treatment.", 399.0, 30),
+            ("Curtain & Quilt Deep Wash", "Heavy fabric wash, dust mite removal, anti-allergen treatment, and press.", 499.0, 45),
         ],
     }
 
-    # Create providers
-    created_providers = []
-    for i, (name, email, bio, location, rating, review_count, exp, rate) in enumerate(providers_data):
-        provider = User(
-            email=email,
-            full_name=name,
-            role=UserRole.PROVIDER,
-            is_active=True,
-            google_id=f"seeded-provider-{i+1}",
-            bio=bio,
-            location=location,
-            rating=rating,
-            review_count=review_count,
-            experience_years=exp,
-            hourly_rate=rate,
-        )
-        db.add(provider)
-        created_providers.append(provider)
-
-    db.commit()
-    for p in created_providers:
-        db.refresh(p)
-
-    # Create services for each provider
-    for i, provider in enumerate(created_providers):
-        cat_name = provider_category_map[i]
-        cat_id = categories.get(cat_name)
-        if not cat_id:
+    # Ensure all services exist for each category
+    for cat_name, svc_list in services_catalog.items():
+        cat = category_map.get(cat_name)
+        if not cat:
             continue
 
-        service_list = services_per_category.get(cat_name, [])
-        # First provider of each category gets first service, second gets second
-        service_index = i % 2
-        if service_index < len(service_list):
-            title, desc, duration = service_list[service_index]
-            service = Service(
-                title=title,
-                description=desc,
-                price=provider.hourly_rate,
-                duration_minutes=duration,
-                category_id=cat_id,
-                provider_id=provider.id,
-                is_active=True,
-                rating=provider.rating,
-                review_count=provider.review_count,
-            )
-            db.add(service)
+        provs = provider_objects.get(cat_name, [])
+        if not provs:
+            continue
 
-        # Also give each provider the other service in their category
-        other_index = 1 - service_index
-        if other_index < len(service_list):
-            title2, desc2, duration2 = service_list[other_index]
-            service2 = Service(
-                title=title2,
-                description=desc2,
-                price=round(provider.hourly_rate * 1.2, 2),
-                duration_minutes=duration2,
-                category_id=cat_id,
-                provider_id=provider.id,
-                is_active=True,
-                rating=round(provider.rating - 0.1, 1),
-                review_count=max(0, provider.review_count - 20),
+        for idx, (title, desc, price, dur) in enumerate(svc_list):
+            prov = provs[idx % len(provs)]
+            existing_svc = (
+                db.query(Service)
+                .filter(Service.category_id == cat.id, Service.title.ilike(title))
+                .first()
             )
-            db.add(service2)
+            if not existing_svc:
+                svc = Service(
+                    title=title,
+                    description=desc,
+                    price=price,
+                    duration_minutes=dur,
+                    category_id=cat.id,
+                    provider_id=prov.id,
+                    is_active=True,
+                    rating=prov.rating,
+                    review_count=prov.review_count,
+                )
+                db.add(svc)
+            else:
+                existing_svc.description = desc
+                existing_svc.price = price
+                existing_svc.duration_minutes = dur
+                existing_svc.is_active = True
+                existing_svc.category_id = cat.id
 
     db.commit()
 
     # Seed an admin user for testing
-    if db.query(User).filter(User.role == UserRole.ADMIN).count() == 0:
+    admin_user = db.query(User).filter((User.email == "admin@nexserve.com") | (User.role == UserRole.ADMIN)).first()
+    if not admin_user:
         admin = User(
             email="admin@nexserve.com",
             full_name="NexServe Admin",
@@ -278,9 +373,13 @@ def _seed_providers_and_services(db):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Lifespan context manager for startup and shutdown events."""
+    import asyncio
+    from app.core.ws_manager import ws_manager
+    ws_manager.set_loop(asyncio.get_running_loop())
     if os.getenv("TESTING") != "true":
         init_db()
     yield
+
 
 
 
@@ -303,6 +402,12 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# ── Static Uploads Mount ──────────────────────────────────
+uploads_dir = os.path.join(os.getcwd(), "uploads")
+os.makedirs(uploads_dir, exist_ok=True)
+os.makedirs(os.path.join(uploads_dir, "bookings"), exist_ok=True)
+app.mount("/uploads", StaticFiles(directory=uploads_dir), name="uploads")
 
 # ── Include Routers ───────────────────────────────────────
 app.include_router(health_router, prefix="/api/v1")
@@ -332,6 +437,22 @@ app.include_router(emergency_router, prefix="/api")
 app.include_router(emergency_router, prefix="/api/v1")
 app.include_router(availability_router, prefix="/api")
 app.include_router(availability_router, prefix="/api/v1")
+
+# Advanced Features: Real-Time WebSockets, Pricing, Coupons, Referrals, Recommendations, Attachments
+app.include_router(ws_router)
+app.include_router(pricing_router, prefix="/api")
+app.include_router(pricing_router, prefix="/api/v1")
+app.include_router(coupons_router, prefix="/api")
+app.include_router(coupons_router, prefix="/api/v1")
+app.include_router(referrals_router, prefix="/api")
+app.include_router(referrals_router, prefix="/api/v1")
+app.include_router(recommendations_router, prefix="/api")
+app.include_router(recommendations_router, prefix="/api/v1")
+app.include_router(attachments_router, prefix="/api")
+app.include_router(attachments_router, prefix="/api/v1")
+app.include_router(rentals_router, prefix="/api")
+app.include_router(rentals_router, prefix="/api/v1")
+
 
 
 

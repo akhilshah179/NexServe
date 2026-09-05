@@ -12,12 +12,32 @@ from app.models.user import User, UserRole
 from app.services.auth_service import get_user_by_id
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login")
+oauth2_scheme_optional = OAuth2PasswordBearer(tokenUrl="/api/v1/auth/login", auto_error=False)
+
+
+def get_optional_current_user(
+    token: str = Depends(oauth2_scheme_optional),
+    db: Session = Depends(get_db),
+) -> User | None:
+    """Optionally validate token and return User, or None if anonymous."""
+    if not token:
+        return None
+    try:
+        payload = decode_access_token(token)
+        if not payload or "sub" not in payload:
+            return None
+        user_id = int(payload["sub"])
+        user = get_user_by_id(db, user_id)
+        return user if (user and user.is_active) else None
+    except Exception:
+        return None
 
 
 def get_current_user(
     token: str = Depends(oauth2_scheme),
     db: Session = Depends(get_db),
 ) -> User:
+
     """Validate bearer token and return authenticated User model."""
     payload = decode_access_token(token)
     if not payload or "sub" not in payload:

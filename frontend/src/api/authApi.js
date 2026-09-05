@@ -1,35 +1,30 @@
 /**
  * Authentication API Client.
- * Connects React frontend to FastAPI auth endpoints.
+ * Connects React frontend to FastAPI auth endpoints using centralized axios instance.
  */
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000/api";
+import api from "./axios";
 
 /**
  * Authenticate with Google ID token.
  * @param {string} credential - Google ID token
  * @param {string} role - Selected user role ('customer' or 'provider')
+ * @param {string} referralCode - Optional referral code during registration
  */
-export async function googleAuthApi(credential, role = "customer") {
+export async function googleAuthApi(credential, role = "customer", referralCode = null) {
   try {
-    const response = await fetch(`${API_BASE}/auth/google`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ credential, role }),
+    const res = await api.post("/auth/google", {
+      credential,
+      role,
+      referral_code: referralCode || undefined,
     });
-
-    const data = await response.json();
-    if (!response.ok) {
-      throw new Error(data.detail || "Google authentication failed.");
-    }
-    return data; // { access_token, token_type, user }
+    return res.data; // { access_token, token_type, user }
   } catch (err) {
-    if (err.name === "TypeError" || err.message === "Failed to fetch") {
-      throw new Error("Unable to connect to NexServe backend server on http://localhost:8000. Please ensure the backend is running.");
-    }
-    throw err;
+    const message =
+      err.response?.data?.detail ||
+      err.message ||
+      "Unable to connect to NexServe authentication backend.";
+    throw new Error(message);
   }
 }
 
@@ -39,23 +34,12 @@ export async function googleAuthApi(credential, role = "customer") {
  */
 export async function fetchMeApi(token) {
   try {
-    const response = await fetch(`${API_BASE}/auth/me`, {
-      method: "GET",
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
-    });
-
-    const data = await response.json();
-    if (!response.ok) {
-      throw new Error(data.detail || "Session expired.");
-    }
-    return data; // UserResponse object
+    const headers = token ? { Authorization: `Bearer ${token}` } : {};
+    const res = await api.get("/auth/me", { headers });
+    return res.data; // UserResponse object
   } catch (err) {
-    if (err.name === "TypeError" || err.message === "Failed to fetch") {
-      throw new Error("Unable to connect to NexServe backend server.");
-    }
-    throw err;
+    const message = err.response?.data?.detail || "Session expired.";
+    throw new Error(message);
   }
 }
 
@@ -65,13 +49,9 @@ export async function fetchMeApi(token) {
  */
 export async function logoutApi(token) {
   try {
-    await fetch(`${API_BASE}/auth/logout`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
-    });
+    const headers = token ? { Authorization: `Bearer ${token}` } : {};
+    await api.post("/auth/logout", {}, { headers });
   } catch (err) {
-    console.warn("Logout endpoint warning:", err);
+    console.warn("Logout warning:", err);
   }
 }

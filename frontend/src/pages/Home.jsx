@@ -17,6 +17,9 @@ import { Link, useNavigate } from "react-router-dom";
 import { getCategories, getServices } from "../api/servicesApi";
 import { fetchPublicProvidersApi } from "../api/providersApi";
 import EmergencyBookingModal from "../components/emergency/EmergencyBookingModal";
+import RecommendationSection from "../components/recommendations/RecommendationSection";
+import ReferralCard from "../components/referrals/ReferralCard";
+import BookingWizardModal from "../components/booking/BookingWizardModal";
 
 export default function Home() {
   const [categories, setCategories] = useState([]);
@@ -28,6 +31,7 @@ export default function Home() {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCity, setSelectedCity] = useState("Bengaluru");
   const [showEmergencyModal, setShowEmergencyModal] = useState(false);
+  const [wizardService, setWizardService] = useState(null);
 
   const navigate = useNavigate();
 
@@ -147,6 +151,67 @@ export default function Home() {
         </div>
       </section>
 
+      {/* ═══ TWO MAIN MARKETPLACE SECTIONS (SERVICES & RENTALS) ═══ */}
+      <section className="py-6 px-4 max-w-7xl mx-auto">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {/* Services Section Card */}
+          <Link
+            to="/services"
+            className="group relative overflow-hidden rounded-3xl p-8 bg-gradient-to-br from-surface-850 via-surface-900 to-surface-850 border border-primary-500/30 hover:border-primary-500/70 shadow-2xl transition-all duration-300 hover:-translate-y-1"
+          >
+            <div className="absolute top-0 right-0 w-48 h-48 bg-primary-600/10 rounded-full blur-3xl pointer-events-none group-hover:bg-primary-600/20 transition-all" />
+            <div className="relative space-y-4">
+              <div className="w-14 h-14 rounded-2xl bg-primary-600/20 border border-primary-500/40 flex items-center justify-center text-3xl shadow-lg shadow-primary-500/20">
+                🛠️
+              </div>
+              <div>
+                <span className="text-[10px] font-extrabold uppercase tracking-wider text-primary-400">
+                  Marketplace 1 • Instant Slot Booking
+                </span>
+                <h2 className="text-2xl sm:text-3xl font-extrabold text-white mt-1 group-hover:text-primary-300 transition-colors">
+                  Professional Services
+                </h2>
+                <p className="text-xs sm:text-sm text-gray-400 mt-2 leading-relaxed">
+                  Book verified professionals for home cleaning, AC service, salon, plumbing, electrical, and car repairs at your doorstep.
+                </p>
+              </div>
+              <div className="flex items-center gap-2 text-xs font-bold text-primary-400 group-hover:text-primary-300 pt-2">
+                <span>Explore 40+ Services</span>
+                <span className="group-hover:translate-x-1 transition-transform">→</span>
+              </div>
+            </div>
+          </Link>
+
+          {/* Rentals Section Card */}
+          <Link
+            to="/rentals"
+            className="group relative overflow-hidden rounded-3xl p-8 bg-gradient-to-br from-surface-850 via-surface-900 to-surface-850 border border-emerald-500/30 hover:border-emerald-500/70 shadow-2xl transition-all duration-300 hover:-translate-y-1"
+          >
+            <div className="absolute top-0 right-0 w-48 h-48 bg-emerald-600/10 rounded-full blur-3xl pointer-events-none group-hover:bg-emerald-600/20 transition-all" />
+            <div className="relative space-y-4">
+              <div className="w-14 h-14 rounded-2xl bg-emerald-600/20 border border-emerald-500/40 flex items-center justify-center text-3xl shadow-lg shadow-emerald-500/20">
+                📦
+              </div>
+              <div>
+                <span className="text-[10px] font-extrabold uppercase tracking-wider text-emerald-400">
+                  Marketplace 2 • Date-Range & Deposit Escrow
+                </span>
+                <h2 className="text-2xl sm:text-3xl font-extrabold text-white mt-1 group-hover:text-emerald-300 transition-colors">
+                  Physical Items & Gear Rental
+                </h2>
+                <p className="text-xs sm:text-sm text-gray-400 mt-2 leading-relaxed">
+                  Rent cameras, camping tents, sound consoles, party equipment, gaming rigs, and vehicles with express delivery or pickup.
+                </p>
+              </div>
+              <div className="flex items-center gap-2 text-xs font-bold text-emerald-400 group-hover:text-emerald-300 pt-2">
+                <span>Explore Rental Marketplace</span>
+                <span className="group-hover:translate-x-1 transition-transform">→</span>
+              </div>
+            </div>
+          </Link>
+        </div>
+      </section>
+
       {/* ═══ POPULAR SERVICE CATEGORIES ═══ */}
       <section className="py-16 px-4 max-w-7xl mx-auto">
         <div className="flex items-end justify-between mb-8">
@@ -237,6 +302,16 @@ export default function Home() {
             </div>
           ))}
         </div>
+      </section>
+
+      {/* ═══ AI SMART RECOMMENDATIONS FEED ═══ */}
+      <section className="px-4 max-w-7xl mx-auto border-t border-white/5">
+        <RecommendationSection onSelectService={(svc) => setWizardService(svc)} />
+      </section>
+
+      {/* ═══ REFERRAL REWARDS SECTION ═══ */}
+      <section className="py-8 px-4 max-w-7xl mx-auto">
+        <ReferralCard />
       </section>
 
       {/* ═══ RECOMMENDED VERIFIED PROVIDERS ═══ */}
@@ -367,6 +442,18 @@ export default function Home() {
       {/* Emergency Modal */}
       {showEmergencyModal && (
         <EmergencyBookingModal onClose={() => setShowEmergencyModal(false)} />
+      )}
+
+      {/* Booking Wizard Modal */}
+      {wizardService && (
+        <BookingWizardModal
+          service={wizardService}
+          onClose={() => setWizardService(null)}
+          onSuccess={() => {
+            setWizardService(null);
+            navigate("/dashboard");
+          }}
+        />
       )}
     </div>
   );

@@ -6,10 +6,13 @@
 import api from "./axios";
 
 /**
- * Fetch all service categories.
+ * Fetch all service categories, optionally with their child services.
  */
-export async function getCategories() {
-  const res = await api.get("/categories");
+export async function getCategories(options = {}) {
+  const includeServices = typeof options === "boolean" ? options : options?.includeServices;
+  const params = {};
+  if (includeServices) params.include_services = true;
+  const res = await api.get("/categories", { params });
   return res.data;
 }
 

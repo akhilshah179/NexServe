@@ -28,6 +28,37 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
 
+from sqlalchemy.types import TypeDecorator, String
+
+class FlexibleEnum(TypeDecorator):
+    """Case-insensitive Enum type that handles uppercase/lowercase string values gracefully."""
+    impl = String(50)
+    cache_ok = True
+
+    def __init__(self, enum_cls, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.enum_cls = enum_cls
+
+    def process_bind_param(self, value, dialect):
+        if value is None:
+            return None
+        if isinstance(value, self.enum_cls):
+            return value.value
+        return str(value).lower()
+
+    def process_result_value(self, value, dialect):
+        if value is None:
+            return None
+        val_str = str(value).lower()
+        for member in self.enum_cls:
+            if member.value.lower() == val_str or member.name.lower() == val_str:
+                return member
+        try:
+            return self.enum_cls(value)
+        except Exception:
+            return value
+
+
 def get_db() -> Generator[Session, None, None]:
     """
     FastAPI dependency that provides a transactional database session per request.

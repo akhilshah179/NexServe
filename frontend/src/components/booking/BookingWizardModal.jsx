@@ -1,13 +1,12 @@
 /**
- * BookingWizardModal.jsx — Step-by-Step Booking UX Engine.
+ * BookingWizardModal.jsx — Advanced Multi-Step Booking UX Engine.
  *
  * Flow:
- * Step 1: Service Summary
- * Step 2: Provider Selection
- * Step 3: Date & Slot Picker
- * Step 4: Customer Address Selection
- * Step 5: Order Summary & Emergency Option
- * Step 6: Razorpay Payment & PostgreSQL Booking Creation
+ * Step 2: Provider Selection & Mode Indicator (Instant vs Request)
+ * Step 3: Date & Slot Picker with Live Dynamic Availability
+ * Step 4: Customer Address & Problem Photo Upload
+ * Step 5: Order Summary, Emergency Option, Dynamic Pricing & Coupons
+ * Step 6: Instant Booking / Request Booking dispatch
  */
 
 import { useState, useEffect } from "react";
@@ -17,13 +16,32 @@ import { fetchAvailableSlotsApi } from "../../api/availabilityApi";
 import { createBooking } from "../../api/bookingsApi";
 import { initiateRazorpayCheckout } from "../../utils/razorpay";
 import AddressManager from "../addresses/AddressManager";
+import PhotoUploadDropzone from "./PhotoUploadDropzone";
+import DynamicPriceBreakdown from "./DynamicPriceBreakdown";
+import {
+  FiZap,
+  FiCalendar,
+  FiClock,
+  FiCheckCircle,
+  FiShield,
+  FiAlertTriangle,
+  FiLoader,
+  FiInfo
+} from "react-icons/fi";
 
-export default function BookingWizardModal({ service, initialProvider = null, onClose, onSuccess }) {
+export default function BookingWizardModal({
+  service,
+  initialProvider = null,
+  onClose,
+  onSuccess,
+}) {
   const { user } = useAuth();
-  const [step, setStep] = useState(initialProvider ? 3 : 2);
+  const [step, setStep] = useState(2);
 
   // Form states
-  const [selectedProvider, setSelectedProvider] = useState(initialProvider);
+  const [selectedProvider, setSelectedProvider] = useState(
+    initialProvider || service?.provider || null
+  );
   const [providers, setProviders] = useState([]);
   const [loadingProviders, setLoadingProviders] = useState(false);
 
@@ -33,24 +51,35 @@ export default function BookingWizardModal({ service, initialProvider = null, on
   const [availableSlots, setAvailableSlots] = useState([]);
   const [selectedSlot, setSelectedSlot] = useState("");
   const [loadingSlots, setLoadingSlots] = useState(false);
+  const [slotError, setSlotError] = useState("");
 
   const [selectedAddress, setSelectedAddress] = useState(null);
+  const [uploadedAttachments, setUploadedAttachments] = useState([]);
   const [isEmergency, setIsEmergency] = useState(false);
   const [notes, setNotes] = useState("");
+
+  // Dynamic pricing breakdown state from backend
+  const [calculatedPricing, setCalculatedPricing] = useState(null);
 
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
 
-  // Load providers for this service category if not passed
+  // 1. Load public providers for this service category
   useEffect(() => {
     async function loadProviders() {
-      if (!initialProvider && service?.category_id) {
+      if (service?.category_id) {
         setLoadingProviders(true);
         try {
           const data = await fetchPublicProvidersApi({ category_id: service.category_id });
-          setProviders(data || []);
-          if (data && data.length > 0) {
-            setSelectedProvider(data[0]);
+          const provList = data || [];
+          setProviders(provList);
+
+          // If no provider selected yet, select service's assigned provider or first from list
+          if (!selectedProvider && provList.length > 0) {
+            const match = service.provider_id
+              ? provList.find((p) => p.id === service.provider_id)
+              : null;
+            setSelectedProvider(match || provList[0]);
           }
         } catch (err) {
           console.warn("Failed to load service providers:", err);
@@ -60,40 +89,50 @@ export default function BookingWizardModal({ service, initialProvider = null, on
       }
     }
     loadProviders();
-  }, [service, initialProvider]);
+  }, [service]);
 
-  // Load available slots when provider or date changes
+  // 2. Load dynamic available slots when selectedProvider, bookingDate, or service changes
   useEffect(() => {
     async function loadSlots() {
       if (selectedProvider?.id && bookingDate) {
         setLoadingSlots(true);
+        setSlotError("");
         try {
-          const slots = await fetchAvailableSlotsApi(selectedProvider.id, bookingDate);
-          setAvailableSlots(slots || []);
-          const firstAvailable = (slots || []).find((s) => s.available);
-          if (firstAvailable) {
-            setSelectedSlot(firstAvailable.time);
+          const slots = await fetchAvailableSlotsApi(
+            selectedProvider.id,
+            bookingDate,
+            service?.id
+          );
+          const slotList = Array.isArray(slots) ? slots : slots?.slots || [];
+          setAvailableSlots(slotList);
+
+          // Auto-select first available open slot
+          const firstOpen = slotList.find((s) => s.available);
+          if (firstOpen) {
+            setSelectedSlot(firstOpen.time);
           } else {
             setSelectedSlot("");
           }
         } catch (err) {
-          console.warn("Failed to load time slots:", err);
+          console.error("Failed to load time slots:", err);
+          setSlotError("Could not retrieve provider schedule. Please try another date.");
+          setAvailableSlots([]);
+          setSelectedSlot("");
         } finally {
           setLoadingSlots(false);
         }
       }
     }
     loadSlots();
-  }, [selectedProvider, bookingDate]);
+  }, [selectedProvider, bookingDate, service?.id]);
 
-  // Price calculations
-  const basePrice = service?.price || selectedProvider?.hourly_rate || 499;
-  const emergencySurcharge = isEmergency ? roundPrice(basePrice * 0.20) : 0;
-  const totalPrice = roundPrice(basePrice + emergencySurcharge);
+  const providerBookingMode = selectedProvider?.booking_mode || "instant_booking";
+  const isRequestBookingMode = providerBookingMode === "request_booking";
 
-  function roundPrice(val) {
-    return Math.round(val * 100) / 100;
-  }
+  const finalAmount =
+    calculatedPricing?.final_total !== undefined
+      ? calculatedPricing.final_total
+      : service?.price || service?.base_price || selectedProvider?.hourly_rate || 499;
 
   const handleConfirmAndPay = async () => {
     if (!user) {
@@ -101,7 +140,7 @@ export default function BookingWizardModal({ service, initialProvider = null, on
       return;
     }
     if (!selectedSlot) {
-      setError("Please select an available time slot.");
+      setError("Please select an available time slot before continuing.");
       return;
     }
 
@@ -109,20 +148,34 @@ export default function BookingWizardModal({ service, initialProvider = null, on
     setError("");
 
     try {
-      // 1. Create Pending Booking in DB
+      // 1. Create Booking in DB
       const bookingPayload = {
         service_id: service.id,
-        provider_id: selectedProvider.id,
+        provider_id: selectedProvider?.id || service.provider_id,
         address_id: selectedAddress?.id || null,
         booking_date: `${bookingDate}T00:00:00Z`,
         time_slot: selectedSlot,
         notes: notes.trim() || null,
         is_emergency: isEmergency,
+        coupon_code: calculatedPricing?.coupon_code || null,
+        apply_referral_credits: (calculatedPricing?.referral_discount || 0) > 0,
+        attachment_ids: uploadedAttachments.map((a) => a.id),
       };
 
       const newBooking = await createBooking(bookingPayload);
 
-      // 2. Initiate Razorpay Checkout modal
+      // If provider has REQUEST_BOOKING mode, no immediate checkout is needed
+      if (isRequestBookingMode || newBooking.status === "requested") {
+        setSubmitting(false);
+        alert(
+          `Booking request #${newBooking.id} sent! The provider will review and accept your request shortly.`
+        );
+        if (onSuccess) onSuccess(newBooking);
+        onClose();
+        return;
+      }
+
+      // 2. Instant Booking -> Razorpay Checkout modal
       initiateRazorpayCheckout({
         booking: newBooking,
         user,
@@ -133,8 +186,9 @@ export default function BookingWizardModal({ service, initialProvider = null, on
         },
         onError: (errMsg) => {
           setSubmitting(false);
-          // If payment cancelled, booking remains in pending status
-          alert(`Booking #${newBooking.id} created as Pending. You can complete payment anytime from your Dashboard.`);
+          alert(
+            `Booking #${newBooking.id} created as Pending. You can complete payment anytime from your Dashboard.`
+          );
           if (onSuccess) onSuccess(newBooking);
           onClose();
         },
@@ -146,29 +200,33 @@ export default function BookingWizardModal({ service, initialProvider = null, on
     }
   };
 
+  const openSlotsCount = availableSlots.filter((s) => s.available).length;
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fade-in">
-      <div className="w-full max-w-2xl bg-surface-900 border border-white/10 rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+      <div className="w-full max-w-2xl bg-slate-900 border border-slate-800 rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
         {/* Modal Header */}
-        <div className="p-6 bg-surface-850 border-b border-white/10 flex items-center justify-between">
+        <div className="p-6 bg-slate-850 border-b border-slate-800 flex items-center justify-between">
           <div>
-            <span className="text-[10px] uppercase font-bold text-primary-400 tracking-wider">
+            <span className="text-[10px] uppercase font-bold text-blue-400 tracking-wider">
               Step {step} of 5
             </span>
-            <h2 className="text-xl font-bold text-white">Book {service?.title || "Service"}</h2>
+            <h2 className="text-xl font-bold text-white">
+              Book {service?.name || service?.title || "Service"}
+            </h2>
           </div>
           <button
             onClick={onClose}
-            className="w-8 h-8 rounded-full bg-surface-750 hover:bg-surface-700 text-gray-400 hover:text-white flex items-center justify-center transition-colors"
+            className="w-8 h-8 rounded-full bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white flex items-center justify-center transition-colors"
           >
             ✕
           </button>
         </div>
 
         {/* Step Indicator Progress Bar */}
-        <div className="w-full bg-surface-800 h-1">
+        <div className="w-full bg-slate-800 h-1">
           <div
-            className="bg-gradient-to-r from-primary-500 to-accent-500 h-full transition-all duration-300"
+            className="bg-gradient-to-r from-blue-500 to-indigo-500 h-full transition-all duration-300"
             style={{ width: `${(step / 5) * 100}%` }}
           />
         </div>
@@ -176,61 +234,86 @@ export default function BookingWizardModal({ service, initialProvider = null, on
         {/* Modal Content Scroll Area */}
         <div className="p-6 overflow-y-auto flex-1 space-y-6">
           {error && (
-            <div className="p-4 rounded-xl bg-error-500/10 border border-error-500/30 text-error-400 text-xs font-semibold flex items-center gap-2">
-              <span>⚠️</span> {error}
+            <div className="p-4 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-xs font-semibold flex items-center gap-2">
+              <FiAlertTriangle /> <span>{error}</span>
             </div>
           )}
 
           {/* STEP 2: SELECT PROVIDER */}
           {step === 2 && (
             <div className="space-y-4">
-              <h3 className="text-sm font-bold text-white">Select Your Service Provider</h3>
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-bold text-white">Select Your Service Provider</h3>
+                <span className="text-xs text-slate-400">{providers.length} verified available</span>
+              </div>
+
               {loadingProviders ? (
-                <div className="py-12 text-center text-xs text-gray-400 animate-pulse">
-                  Finding top providers...
+                <div className="py-12 text-center text-xs text-slate-400 flex flex-col items-center gap-2 animate-pulse">
+                  <FiLoader className="w-6 h-6 animate-spin text-blue-500" />
+                  <span>Finding top rated verified providers...</span>
                 </div>
               ) : providers.length === 0 ? (
-                <div className="p-6 rounded-2xl bg-surface-800 text-center text-xs text-gray-400">
-                  No explicit providers listed for this category yet. Defaulting to top verified pro.
+                <div className="p-6 rounded-2xl bg-slate-800 text-center text-xs text-slate-400 space-y-2">
+                  <p>No explicit providers listed for this category yet.</p>
+                  <p className="text-slate-500">Defaulting to master certified technician.</p>
                 </div>
               ) : (
-                <div className="grid gap-3">
+                <div className="grid gap-3 max-h-80 overflow-y-auto pr-1">
                   {providers.map((p) => (
                     <div
                       key={p.id}
                       onClick={() => setSelectedProvider(p)}
                       className={`p-4 rounded-2xl border cursor-pointer transition-all flex items-center justify-between ${
                         selectedProvider?.id === p.id
-                          ? "bg-primary-500/15 border-primary-500/50 shadow-md shadow-primary-500/10"
-                          : "bg-surface-800 border-white/5 hover:border-white/20"
+                          ? "bg-blue-600/15 border-blue-500/50 shadow-md shadow-blue-500/10"
+                          : "bg-slate-800/80 border-slate-700/50 hover:border-slate-600"
                       }`}
                     >
                       <div className="flex items-center gap-3">
                         {p.profile_image ? (
-                          <img src={p.profile_image} alt={p.full_name} className="w-12 h-12 rounded-xl object-cover" />
+                          <img
+                            src={p.profile_image}
+                            alt={p.full_name}
+                            className="w-12 h-12 rounded-xl object-cover ring-1 ring-blue-500/30"
+                          />
                         ) : (
-                          <div className="w-12 h-12 rounded-xl bg-primary-600 flex items-center justify-center text-white font-bold">
+                          <div className="w-12 h-12 rounded-xl bg-blue-600 flex items-center justify-center text-white font-bold text-lg shadow">
                             {p.full_name?.charAt(0)}
                           </div>
                         )}
                         <div>
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-2 flex-wrap">
                             <h4 className="text-sm font-bold text-white">{p.full_name}</h4>
-                            <span className="text-[10px] font-bold text-emerald-400 bg-emerald-500/20 px-2 py-0.5 rounded">
+                            <span className="text-[10px] font-bold text-emerald-400 bg-emerald-500/20 px-2 py-0.5 rounded flex items-center gap-1">
                               ✓ Verified
                             </span>
+                            {p.booking_mode === "request_booking" ? (
+                              <span className="text-[10px] font-semibold text-amber-400 bg-amber-500/20 px-2 py-0.5 rounded flex items-center gap-1">
+                                📩 Request Mode
+                              </span>
+                            ) : (
+                              <span className="text-[10px] font-semibold text-blue-400 bg-blue-500/20 px-2 py-0.5 rounded flex items-center gap-1">
+                                <FiZap /> Instant
+                              </span>
+                            )}
                           </div>
-                          <p className="text-xs text-gray-400">{p.location || "Bengaluru"}</p>
-                          <div className="flex items-center gap-2 text-[11px] text-yellow-400 font-bold mt-1">
+                          <p className="text-xs text-slate-400 mt-0.5">
+                            {p.location || "Available across your city"}
+                          </p>
+                          <div className="flex items-center gap-2 text-[11px] text-amber-400 font-bold mt-1">
                             <span>⭐ {p.rating || 4.9}</span>
-                            <span className="text-gray-400 font-normal">({p.review_count || 15} reviews)</span>
+                            <span className="text-slate-400 font-normal">
+                              ({p.review_count || 24} reviews)
+                            </span>
                           </div>
                         </div>
                       </div>
 
-                      <div className="text-right">
-                        <span className="text-sm font-extrabold text-white">₹{p.hourly_rate || service.price}</span>
-                        <span className="text-[10px] text-gray-400 block">/ hour</span>
+                      <div className="text-right shrink-0">
+                        <span className="text-sm font-extrabold text-white">
+                          ₹{p.hourly_rate || service.price || service.base_price}
+                        </span>
+                        <span className="text-[10px] text-slate-400 block">/ service</span>
                       </div>
                     </div>
                   ))}
@@ -241,142 +324,207 @@ export default function BookingWizardModal({ service, initialProvider = null, on
 
           {/* STEP 3: DATE & TIME SLOT PICKER */}
           {step === 3 && (
-            <div className="space-y-5">
+            <div className="space-y-6">
+              {/* Date Input */}
               <div>
-                <label className="block text-xs font-bold text-gray-300 uppercase mb-2">Select Date</label>
+                <label className="block text-xs font-bold text-slate-300 uppercase mb-2 flex items-center gap-1.5">
+                  <FiCalendar className="text-blue-400" />
+                  <span>Select Booking Date</span>
+                </label>
                 <input
                   type="date"
                   min={new Date().toISOString().split("T")[0]}
                   value={bookingDate}
                   onChange={(e) => setBookingDate(e.target.value)}
-                  className="w-full px-4 py-3 rounded-xl bg-surface-800 border border-white/10 text-white text-xs outline-none"
+                  className="w-full px-4 py-3 rounded-xl bg-slate-800 border border-slate-700 text-white text-xs outline-none focus:border-blue-500 transition"
                 />
               </div>
 
+              {/* Slots Section */}
               <div>
-                <label className="block text-xs font-bold text-gray-300 uppercase mb-2">
-                  Select Available Slot
-                </label>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="block text-xs font-bold text-slate-300 uppercase flex items-center gap-1.5">
+                    <FiClock className="text-blue-400" />
+                    <span>Select Available Time Slot</span>
+                  </label>
+                  {!loadingSlots && availableSlots.length > 0 && (
+                    <span className="text-[11px] text-emerald-400 font-semibold">
+                      {openSlotsCount} slots open
+                    </span>
+                  )}
+                </div>
+
                 {loadingSlots ? (
-                  <div className="py-8 text-center text-xs text-gray-400 animate-pulse">
-                    Checking provider calendar...
+                  <div className="py-10 text-center text-xs text-slate-400 flex flex-col items-center gap-2 animate-pulse bg-slate-800/40 rounded-2xl border border-slate-800">
+                    <FiLoader className="w-6 h-6 animate-spin text-blue-500" />
+                    <span>Checking provider working hours & live availability...</span>
                   </div>
-                ) : availableSlots.length === 0 ? (
-                  <div className="p-4 rounded-xl bg-error-500/10 border border-error-500/20 text-error-400 text-xs text-center">
-                    No open slots on this date. Please pick another date.
+                ) : slotError ? (
+                  <div className="p-4 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 text-xs text-center">
+                    {slotError}
+                  </div>
+                ) : availableSlots.length === 0 || openSlotsCount === 0 ? (
+                  <div className="p-5 rounded-2xl bg-amber-500/10 border border-amber-500/20 text-center space-y-1.5">
+                    <p className="text-xs font-bold text-amber-300">
+                      No open slots on this date.
+                    </p>
+                    <p className="text-[11px] text-slate-400">
+                      The provider may be off, fully booked, or on break. Please select another date.
+                    </p>
                   </div>
                 ) : (
-                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
-                    {availableSlots.map((slot, idx) => (
-                      <button
-                        key={idx}
-                        disabled={!slot.available}
-                        onClick={() => setSelectedSlot(slot.time)}
-                        className={`p-3 rounded-xl border text-xs font-semibold text-center transition-all ${
-                          !slot.available
-                            ? "bg-surface-850/50 border-white/5 text-gray-600 cursor-not-allowed line-through"
-                            : selectedSlot === slot.time
-                            ? "bg-primary-500/25 border-primary-500 text-primary-300 shadow"
-                            : "bg-surface-800 border-white/10 text-gray-300 hover:border-white/30"
-                        }`}
-                      >
-                        {slot.time}
-                      </button>
-                    ))}
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5 max-h-64 overflow-y-auto pr-1">
+                    {availableSlots.map((slot, idx) => {
+                      const isSelected = selectedSlot === slot.time;
+                      const isAvail = slot.available;
+
+                      return (
+                        <button
+                          key={idx}
+                          type="button"
+                          disabled={!isAvail}
+                          onClick={() => setSelectedSlot(slot.time)}
+                          className={`p-3 rounded-xl border text-xs font-semibold text-center transition-all flex flex-col items-center justify-center min-h-[52px] ${
+                            !isAvail
+                              ? "bg-slate-900/40 border-slate-800 text-slate-600 cursor-not-allowed line-through"
+                              : isSelected
+                              ? "bg-blue-600/30 border-blue-500 text-blue-300 shadow-md shadow-blue-500/20 ring-1 ring-blue-500/50"
+                              : "bg-slate-800 border-slate-700 text-slate-200 hover:border-slate-500 hover:bg-slate-750"
+                          }`}
+                          title={slot.reason || "Available Slot"}
+                        >
+                          <span>{slot.time}</span>
+                          {!isAvail && slot.reason && (
+                            <span className="text-[9px] text-red-400 font-normal mt-0.5 no-underline block">
+                              ({slot.reason})
+                            </span>
+                          )}
+                        </button>
+                      );
+                    })}
                   </div>
                 )}
               </div>
             </div>
           )}
 
-          {/* STEP 4: ADDRESS SELECTION */}
+          {/* STEP 4: ADDRESS SELECTION & PHOTO UPLOADS */}
           {step === 4 && (
-            <div className="space-y-4">
-              <h3 className="text-sm font-bold text-white">Select Service Address</h3>
-              <AddressManager
-                selectedAddressId={selectedAddress?.id}
-                onSelectAddress={(addr) => setSelectedAddress(addr)}
-              />
+            <div className="space-y-6">
+              <div>
+                <h3 className="text-sm font-bold text-white mb-3">Service Address</h3>
+                <AddressManager
+                  selectedAddressId={selectedAddress?.id}
+                  onSelectAddress={(addr) => setSelectedAddress(addr)}
+                />
+              </div>
+
+              {/* Photo Upload Dropzone */}
+              <div className="pt-4 border-t border-slate-800">
+                <PhotoUploadDropzone
+                  uploadedList={uploadedAttachments}
+                  onAttachmentsUploaded={(list) => setUploadedAttachments(list)}
+                />
+              </div>
             </div>
           )}
 
-          {/* STEP 5: ORDER SUMMARY & CONFIRMATION */}
+          {/* STEP 5: ORDER SUMMARY, DYNAMIC PRICING & COUPONS */}
           {step === 5 && (
             <div className="space-y-5">
-              <div className="p-4 rounded-2xl bg-surface-800 border border-white/10 space-y-3 text-xs">
+              {/* Service & Provider summary card */}
+              <div className="p-4 rounded-2xl bg-slate-800/60 border border-slate-700/60 space-y-2 text-xs">
                 <div className="flex justify-between">
-                  <span className="text-gray-400">Service:</span>
-                  <span className="font-bold text-white">{service?.title}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-400">Provider:</span>
-                  <span className="font-bold text-white">{selectedProvider?.full_name}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-400">Date & Slot:</span>
-                  <span className="font-bold text-white">{bookingDate} ({selectedSlot})</span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-gray-400">Address:</span>
-                  <span className="font-bold text-white truncate max-w-[200px]">
-                    {selectedAddress ? `${selectedAddress.address_line}, ${selectedAddress.city}` : "At Provider Workshop"}
+                  <span className="text-slate-400">Service:</span>
+                  <span className="font-bold text-white">
+                    {service?.name || service?.title}
                   </span>
                 </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-400">Provider:</span>
+                  <span className="font-bold text-white">
+                    {selectedProvider?.full_name || "Verified Professional"}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-400">Date & Slot:</span>
+                  <span className="font-bold text-white">
+                    {bookingDate} ({selectedSlot})
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-slate-400">Address:</span>
+                  <span className="font-bold text-white truncate max-w-[260px]" title={selectedAddress?.full_address || "Service Location"}>
+                    {selectedAddress
+                      ? selectedAddress.full_address
+                        ? `${selectedAddress.full_address}, ${selectedAddress.city}`
+                        : `${selectedAddress.label || "Address"}, ${selectedAddress.city}`
+                      : "Doorstep Service, Bengaluru"}
+                  </span>
+                </div>
+                {uploadedAttachments.length > 0 && (
+                  <div className="flex justify-between">
+                    <span className="text-slate-400">Photos Attached:</span>
+                    <span className="font-bold text-blue-400">
+                      {uploadedAttachments.length} photos
+                    </span>
+                  </div>
+                )}
               </div>
 
-              {/* Emergency Option Checkbox */}
-              <div className="p-4 rounded-2xl bg-error-500/10 border border-error-500/30 flex items-center justify-between">
+              {/* 24/7 Emergency Dispatch Option */}
+              <div className="p-4 rounded-2xl bg-red-500/10 border border-red-500/30 flex items-center justify-between">
                 <div>
-                  <h4 className="text-xs font-bold text-error-400">🚨 Urgent Emergency Dispatch</h4>
-                  <p className="text-[11px] text-gray-400">Adds priority dispatch (+20% surcharge)</p>
+                  <h4 className="text-xs font-bold text-red-400">
+                    🚨 24/7 Urgent Emergency Dispatch
+                  </h4>
+                  <p className="text-[11px] text-slate-400">
+                    Priority technician arrival (+₹150 surcharge)
+                  </p>
                 </div>
                 <input
                   type="checkbox"
                   checked={isEmergency}
                   onChange={(e) => setIsEmergency(e.target.checked)}
-                  className="w-5 h-5 rounded accent-error-500 cursor-pointer"
+                  className="w-5 h-5 rounded accent-red-500 cursor-pointer"
                 />
               </div>
 
               {/* Special Instructions */}
               <div>
-                <label className="block text-xs font-bold text-gray-300 uppercase mb-1">Notes / Instructions</label>
+                <label className="block text-xs font-bold text-slate-300 uppercase mb-1">
+                  Notes / Instructions
+                </label>
                 <textarea
                   rows={2}
-                  placeholder="Any special instructions for the technician..."
+                  placeholder="Any specific issues, landmark, or gate entry notes..."
                   value={notes}
                   onChange={(e) => setNotes(e.target.value)}
-                  className="w-full p-3 rounded-xl bg-surface-800 border border-white/10 text-xs text-white outline-none"
+                  className="w-full p-3 rounded-xl bg-slate-800 border border-slate-700 text-xs text-white placeholder-slate-500 outline-none focus:border-blue-500"
                 />
               </div>
 
-              {/* Price Breakdown */}
-              <div className="p-4 rounded-2xl bg-surface-850 border border-white/10 space-y-2 text-xs">
-                <div className="flex justify-between text-gray-400">
-                  <span>Base Price</span>
-                  <span>₹{basePrice}</span>
-                </div>
-                {isEmergency && (
-                  <div className="flex justify-between text-error-400 font-semibold">
-                    <span>Emergency Surcharge (+20%)</span>
-                    <span>+₹{emergencySurcharge}</span>
-                  </div>
-                )}
-                <div className="pt-2 border-t border-white/10 flex justify-between text-sm font-extrabold text-white">
-                  <span>Total Payable</span>
-                  <span className="text-primary-300">₹{totalPrice}</span>
-                </div>
-              </div>
+              {/* Dynamic Pricing Engine & Coupons Breakdown */}
+              <DynamicPriceBreakdown
+                serviceId={service.id}
+                providerId={selectedProvider?.id}
+                bookingDate={bookingDate}
+                timeSlot={selectedSlot}
+                isEmergency={isEmergency}
+                customerLat={selectedAddress?.latitude}
+                customerLng={selectedAddress?.longitude}
+                onPriceCalculated={(breakdown) => setCalculatedPricing(breakdown)}
+              />
             </div>
           )}
         </div>
 
         {/* Modal Footer Controls */}
-        <div className="p-5 bg-surface-850 border-t border-white/10 flex items-center justify-between">
+        <div className="p-5 bg-slate-850 border-t border-slate-800 flex items-center justify-between">
           {step > 2 ? (
             <button
               onClick={() => setStep(step - 1)}
-              className="px-5 py-2.5 rounded-xl bg-surface-750 hover:bg-surface-700 text-xs font-semibold text-gray-300"
+              className="px-5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-xs font-semibold text-slate-300 transition"
             >
               ← Back
             </button>
@@ -387,13 +535,17 @@ export default function BookingWizardModal({ service, initialProvider = null, on
           {step < 5 ? (
             <button
               onClick={() => {
+                if (step === 2 && !selectedProvider) {
+                  alert("Please select a provider first.");
+                  return;
+                }
                 if (step === 3 && !selectedSlot) {
-                  alert("Please select a time slot first.");
+                  alert("Please select an available time slot first.");
                   return;
                 }
                 setStep(step + 1);
               }}
-              className="px-6 py-2.5 rounded-xl bg-primary-600 hover:bg-primary-500 text-xs font-bold text-white shadow-lg shadow-primary-500/25"
+              className="px-6 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-xs font-bold text-white shadow-lg shadow-blue-500/25 transition"
             >
               Next Step →
             </button>
@@ -401,9 +553,17 @@ export default function BookingWizardModal({ service, initialProvider = null, on
             <button
               onClick={handleConfirmAndPay}
               disabled={submitting}
-              className="px-8 py-3 rounded-xl bg-gradient-to-r from-primary-600 to-accent-500 hover:from-primary-500 hover:to-accent-400 text-xs font-extrabold text-white shadow-xl shadow-primary-500/30 flex items-center gap-2"
+              className={`px-8 py-3 rounded-xl text-xs font-extrabold text-white shadow-xl flex items-center gap-2 transition disabled:opacity-50 ${
+                isRequestBookingMode
+                  ? "bg-gradient-to-r from-amber-600 to-amber-500 hover:from-amber-500 hover:to-amber-400 shadow-amber-600/30"
+                  : "bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-500 hover:to-indigo-500 shadow-blue-600/30"
+              }`}
             >
-              {submitting ? "Processing..." : `Confirm & Pay ₹${totalPrice}`}
+              {submitting
+                ? "Processing..."
+                : isRequestBookingMode
+                ? "Send Booking Request 📩"
+                : `Confirm & Pay ₹${finalAmount.toFixed(2)}`}
             </button>
           )}
         </div>

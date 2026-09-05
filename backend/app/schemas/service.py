@@ -48,3 +48,8 @@ class ServiceResponse(BaseModel):
     provider: Optional[UserResponse] = None
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class CategoryWithServicesResponse(CategoryResponse):
+    services: list[ServiceResponse] = []
+

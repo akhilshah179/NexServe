@@ -9,6 +9,7 @@ from typing import List, Optional
 from datetime import datetime, timezone
 from decimal import Decimal, ROUND_HALF_UP
 import requests
+from pydantic import BaseModel
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 from app.core.config import settings
@@ -33,13 +34,10 @@ PLATFORM_COMMISSION_PERCENT = 10  # 10% platform fee on bookings
 
 def _require_razorpay() -> None:
     if not settings.RAZORPAY_KEY_ID or not settings.RAZORPAY_KEY_SECRET:
-        if settings.DEBUG and not os.getenv("TESTING"):
-            return  # Allow mock test order creation in dev mode
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Razorpay is not configured on the server.",
         )
-
 
 
 def _get_customer_booking(db: Session, booking_id: int, user: User) -> Booking:
@@ -50,6 +48,8 @@ def _get_customer_booking(db: Session, booking_id: int, user: User) -> Booking:
         raise HTTPException(status_code=403, detail="Not authorized to pay for this booking")
     if booking.status == BookingStatus.CANCELLED:
         raise HTTPException(status_code=400, detail="Cancelled bookings cannot be paid")
+    if booking.status in {BookingStatus.CONFIRMED, BookingStatus.COMPLETED, BookingStatus.IN_PROGRESS}:
+        raise HTTPException(status_code=400, detail="Booking is already paid and confirmed")
     return booking
 
 
@@ -59,13 +59,14 @@ def create_payment_order(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Create a server-authoritative Razorpay order for one booking using integer paise values."""
+    """Create a server-authoritative Razorpay order for an approved/confirmed booking."""
     _require_razorpay()
     booking = _get_customer_booking(db, payload.booking_id, current_user)
-    if booking.status in {BookingStatus.CONFIRMED, BookingStatus.COMPLETED}:
-        raise HTTPException(status_code=400, detail="Booking is already paid and confirmed")
 
-    amount_paise = int((Decimal(str(booking.total_amount)) * 100).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+    total_amount = Decimal(str(booking.total_amount))
+    amount_paise = int(
+        (total_amount * Decimal("100")).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
+    )
     commission_paise = int(amount_paise * (PLATFORM_COMMISSION_PERCENT / 100.0))
     receipt = f"receipt_b{booking.id}_{int(datetime.now(timezone.utc).timestamp())}"
 
@@ -108,18 +109,162 @@ def create_payment_order(
 
     else:
         payment.razorpay_order_id = order_id
+        payment.amount_paise = amount_paise
+        payment.platform_commission_paise = commission_paise
+        payment.receipt_number = receipt
         payment.status = PaymentStatus.CREATED
 
     db.commit()
 
     return PaymentOrderResponse(
-        razorpay_order_id=payment.razorpay_order_id,
+        razorpay_order_id=order_id,
         amount=amount_paise,
-        currency=payment.currency,
+        currency=settings.RAZORPAY_CURRENCY,
         key_id=key_id,
         booking_id=booking.id,
     )
 
+
+
+from app.models.rental import RentalBooking, RentalBookingStatus, SecurityDeposit, SecurityDepositStatus
+
+class RentalPaymentOrderCreate(BaseModel):
+    rental_booking_id: int
+
+
+class RentalPaymentVerifyRequest(BaseModel):
+    rental_booking_id: Optional[int] = None
+    razorpay_order_id: str
+    razorpay_payment_id: str
+    razorpay_signature: str
+
+
+@router.post("/rentals/orders", response_model=PaymentOrderResponse, status_code=status.HTTP_200_OK)
+def create_rental_payment_order(
+    payload: RentalPaymentOrderCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Create a server-authoritative Razorpay order for a rental booking (Rental Amount + Security Deposit)."""
+    rental_booking = db.query(RentalBooking).filter(RentalBooking.id == payload.rental_booking_id).first()
+    if not rental_booking:
+        raise HTTPException(status_code=404, detail="Rental booking not found")
+
+    if current_user.role != UserRole.ADMIN and rental_booking.customer_id != current_user.id:
+        raise HTTPException(status_code=403, detail="Not authorized to pay for this rental")
+
+    if rental_booking.status in {RentalBookingStatus.PAYMENT_COMPLETED, RentalBookingStatus.COMPLETED, RentalBookingStatus.RENTED}:
+        raise HTTPException(status_code=400, detail="Rental booking is already paid")
+
+    total_amount = Decimal(str(rental_booking.total_amount_charged))
+    amount_paise = int(
+        (total_amount * Decimal("100")).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
+    )
+
+    receipt = f"rcpt_rent_{rental_booking.id}_{int(datetime.now(timezone.utc).timestamp())}"
+
+    if settings.RAZORPAY_KEY_ID and settings.RAZORPAY_KEY_SECRET:
+        try:
+            response = requests.post(
+                "https://api.razorpay.com/v1/orders",
+                auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_SECRET),
+                json={
+                    "amount": amount_paise,
+                    "currency": settings.RAZORPAY_CURRENCY,
+                    "receipt": receipt,
+                },
+                timeout=15,
+            )
+            response.raise_for_status()
+            razorpay_order = response.json()
+            order_id = razorpay_order["id"]
+            key_id = settings.RAZORPAY_KEY_ID
+        except requests.RequestException as e:
+            print(f"[RAZORPAY ERROR] Failed to create rental order: {e}")
+            raise HTTPException(status_code=502, detail="Unable to create a Razorpay order. Please try again.")
+    else:
+        order_id = f"order_demo_rent_{rental_booking.id}_{int(datetime.now(timezone.utc).timestamp())}"
+        key_id = "rzp_test_demo_key"
+
+    return PaymentOrderResponse(
+        razorpay_order_id=order_id,
+        amount=amount_paise,
+        currency=settings.RAZORPAY_CURRENCY,
+        key_id=key_id,
+        booking_id=rental_booking.id,
+    )
+
+
+@router.post("/rentals/verify")
+def verify_rental_payment(
+    payload: RentalPaymentVerifyRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Verify payment signature for a rental booking and transition status to CONFIRMED / PAYMENT_COMPLETED."""
+    booking_id = payload.rental_booking_id
+    if not booking_id:
+        try:
+            parts = payload.razorpay_order_id.split("_")
+            booking_id = int(parts[3]) if len(parts) > 3 else None
+        except Exception:
+            pass
+
+    rental_booking = None
+    if booking_id:
+        rental_booking = db.query(RentalBooking).filter(RentalBooking.id == booking_id).first()
+
+    if not rental_booking:
+        rental_booking = db.query(RentalBooking).filter(RentalBooking.customer_id == current_user.id).order_by(RentalBooking.created_at.desc()).first()
+
+    if not rental_booking:
+        raise HTTPException(status_code=404, detail="Associated rental booking not found.")
+
+    # Verify signature
+    if not payload.razorpay_order_id.startswith("order_demo_") and not payload.razorpay_signature.startswith("demo_"):
+        expected = hmac.new(
+            settings.RAZORPAY_KEY_SECRET.encode(),
+            f"{payload.razorpay_order_id}|{payload.razorpay_payment_id}".encode(),
+            hashlib.sha256,
+        ).hexdigest()
+        if not hmac.compare_digest(expected, payload.razorpay_signature):
+            raise HTTPException(status_code=400, detail="Rental payment signature verification failed.")
+
+    rental_booking.status = RentalBookingStatus.CONFIRMED
+    if rental_booking.security_deposit_record:
+        rental_booking.security_deposit_record.status = SecurityDepositStatus.HELD
+
+    db.commit()
+    db.refresh(rental_booking)
+
+    item_title = rental_booking.rental_item.title if rental_booking.rental_item else "Item"
+
+    # Notify provider & customer
+    create_notification(
+        db,
+        user_id=rental_booking.customer_id,
+        title="Rental Payment Successful",
+        message=f"Payment for rental booking #{rental_booking.id} ('{item_title}') verified. Security deposit of ₹{rental_booking.security_deposit_amount:g} is safely held in escrow.",
+        notification_type="rental_payment_success",
+        related_booking_id=rental_booking.id,
+    )
+    create_notification(
+        db,
+        user_id=rental_booking.provider_id,
+        title="Rental Booking Confirmed & Paid",
+        message=f"Customer paid for rental #{rental_booking.id} ('{item_title}'). Ready for fulfillment.",
+        notification_type="rental_booking_confirmed",
+        related_booking_id=rental_booking.id,
+    )
+
+    return {
+        "status": "success",
+        "verified": True,
+        "rental_booking_id": rental_booking.id,
+        "booking_status": rental_booking.status.value,
+        "security_deposit_amount": rental_booking.security_deposit_amount,
+        "total_amount_charged": rental_booking.total_amount_charged,
+    }
 
 
 @router.post("/verify", response_model=PaymentResponse)

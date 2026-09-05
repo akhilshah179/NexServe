@@ -10,6 +10,9 @@ from app.models.user import User
 from app.core.config import settings
 
 
+from datetime import datetime, timezone
+from app.core.ws_manager import ws_manager
+
 def create_notification(
     db: Session,
     user_id: int,
@@ -20,7 +23,8 @@ def create_notification(
 ) -> Notification:
     """
     Creates an in-app notification record and dispatches external channels
-    (Email, SMS, WhatsApp) if enabled via server environment variables.
+    (Email, SMS, WhatsApp) if enabled via server environment variables,
+    and pushes real-time WebSocket event to the user.
     """
     notification = Notification(
         user_id=user_id,
@@ -33,6 +37,23 @@ def create_notification(
     db.add(notification)
     db.commit()
     db.refresh(notification)
+
+    # Real-Time WebSocket Push to recipient user
+    notif_payload = {
+        "event": "new_notification",
+        "type": "notification",
+        "notification": {
+            "id": notification.id,
+            "user_id": notification.user_id,
+            "title": notification.title,
+            "message": notification.message,
+            "type": notification.type,
+            "is_read": notification.is_read,
+            "related_booking_id": notification.related_booking_id,
+            "created_at": notification.created_at.isoformat() if notification.created_at else datetime.now(timezone.utc).isoformat(),
+        },
+    }
+    ws_manager.send_user_notification_sync(user_id, notif_payload)
 
     # Pluggable channel dispatchers
     user = db.query(User).filter(User.id == user_id).first()

@@ -30,13 +30,15 @@ def google_auth(
     user, access_token = process_google_login(
         db,
         credential=auth_request.credential,
-        selected_role=auth_request.role
+        selected_role=auth_request.role,
+        referral_code=auth_request.referral_code,
     )
     return Token(
         access_token=access_token,
         token_type="bearer",
         user=UserResponse.model_validate(user),
     )
+
 
 
 @router.get("/me", response_model=UserResponse)

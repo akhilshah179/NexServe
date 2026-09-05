@@ -1,5 +1,5 @@
 """
-Bookings API Endpoints — Lifecycle & State Transitions.
+Bookings API Endpoints — Lifecycle & Real-Time State Transitions.
 """
 
 from typing import List, Optional
@@ -38,7 +38,7 @@ def book_service(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Create a service booking (Authenticated user)."""
+    """Create a service booking (Authenticated customer)."""
     return create_booking(db, customer_id=current_user.id, booking_in=booking_in)
 
 
@@ -58,7 +58,7 @@ def get_single_booking(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Get single booking details."""
+    """Get single booking details with tracking history and attachments."""
     return get_booking_by_id(db, booking_id, current_user)
 
 
@@ -68,18 +68,55 @@ def confirm_booking(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Provider confirms pending booking."""
-    return transition_booking_status(db, booking_id, current_user, BookingStatus.CONFIRMED)
+    """Provider confirms/accepts pending/requested booking."""
+    return transition_booking_status(db, booking_id, current_user, BookingStatus.CONFIRMED, notes="Provider accepted the booking.")
+
+
+@router.post("/{booking_id}/on-the-way", response_model=BookingResponse)
+def provider_on_the_way(
+    booking_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Provider marks status as 'On The Way'."""
+    return transition_booking_status(db, booking_id, current_user, BookingStatus.PROVIDER_ON_THE_WAY, notes="Provider is on the way to the location.")
+
+
+@router.post("/{booking_id}/start", response_model=BookingResponse)
+def start_booking(
+    booking_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Provider starts job (Status -> IN_PROGRESS)."""
+    return transition_booking_status(db, booking_id, current_user, BookingStatus.IN_PROGRESS, notes="Service work has begun.")
+
+
+@router.post("/{booking_id}/complete", response_model=BookingResponse)
+def complete_booking(
+    booking_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Provider completes confirmed booking (Status -> COMPLETED)."""
+    return transition_booking_status(db, booking_id, current_user, BookingStatus.COMPLETED, notes="Service completed successfully.")
 
 
 @router.post("/{booking_id}/reject", response_model=BookingResponse)
 def reject_booking(
     booking_id: int,
+    reason: Optional[str] = Query(None, description="Reason for rejection"),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Provider rejects pending booking."""
-    return transition_booking_status(db, booking_id, current_user, BookingStatus.REJECTED)
+    """Provider rejects request/pending booking."""
+    return transition_booking_status(
+        db,
+        booking_id,
+        current_user,
+        BookingStatus.REJECTED,
+        notes=reason or "Provider is unavailable at the requested time.",
+    )
 
 
 @router.post("/{booking_id}/cancel", response_model=BookingResponse)
@@ -99,26 +136,6 @@ def cancel_booking(
     )
 
 
-@router.post("/{booking_id}/start", response_model=BookingResponse)
-def start_booking(
-    booking_id: int,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    """Provider starts confirmed booking (Status -> IN_PROGRESS)."""
-    return transition_booking_status(db, booking_id, current_user, BookingStatus.IN_PROGRESS)
-
-
-@router.post("/{booking_id}/complete", response_model=BookingResponse)
-def complete_booking(
-    booking_id: int,
-    db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    """Provider completes confirmed booking."""
-    return transition_booking_status(db, booking_id, current_user, BookingStatus.COMPLETED)
-
-
 @router.post("/{booking_id}/reschedule", response_model=BookingResponse)
 def reschedule_user_booking(
     booking_id: int,
@@ -131,18 +148,19 @@ def reschedule_user_booking(
 
 
 @router.patch("/{booking_id}/status", response_model=BookingResponse)
-def legacy_patch_booking_status(
+def patch_booking_status(
     booking_id: int,
     status_update: BookingStatusUpdate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """Generic status update endpoint for backward compatibility."""
+    """Generic status transition endpoint."""
     return transition_booking_status(
         db,
         booking_id,
         current_user,
         status_update.status,
+        notes=status_update.notes or status_update.cancellation_reason,
         cancellation_reason=status_update.cancellation_reason,
     )
 
@@ -164,7 +182,13 @@ def get_booked_slots(
         .filter(
             Booking.provider_id == provider_id,
             func.date(Booking.booking_date) == target_date,
-            Booking.status.in_([BookingStatus.PENDING, BookingStatus.CONFIRMED]),
+            Booking.status.in_([
+                BookingStatus.PENDING,
+                BookingStatus.REQUESTED,
+                BookingStatus.CONFIRMED,
+                BookingStatus.PROVIDER_ON_THE_WAY,
+                BookingStatus.IN_PROGRESS,
+            ]),
         )
         .all()
     )

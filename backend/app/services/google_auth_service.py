@@ -63,13 +63,21 @@ def verify_google_token(credential: str) -> dict:
     return id_info
 
 
-def process_google_login(db: Session, credential: str, selected_role: Optional[UserRole] = UserRole.CUSTOMER) -> tuple[User, str]:
+def process_google_login(
+    db: Session,
+    credential: str,
+    selected_role: Optional[UserRole] = UserRole.CUSTOMER,
+    referral_code: Optional[str] = None,
+) -> tuple[User, str]:
     """
     Processes a Google Sign-In request:
     1. Verifies the ID token
     2. Finds or creates the user in PostgreSQL/DB
-    3. Generates a signed NexServe JWT token
+    3. Ensures unique referral code and links referral if code provided
+    4. Generates a signed NexServe JWT token
     """
+    from app.services.referral_service import ensure_user_referral_code, link_referral_signup
+
     id_info = verify_google_token(credential)
 
     google_id = id_info.get("sub")
@@ -86,6 +94,7 @@ def process_google_login(db: Session, credential: str, selected_role: Optional[U
     # Search DB for user by google_id or email
     user = db.query(User).filter((User.google_id == google_id) | (User.email == email)).first()
 
+    is_new_user = False
     if user:
         if not user.google_id:
             user.google_id = google_id
@@ -97,6 +106,7 @@ def process_google_login(db: Session, credential: str, selected_role: Optional[U
         db.refresh(user)
     else:
         # Default role CUSTOMER (or selected_role)
+        is_new_user = True
         user_role = selected_role if selected_role in [UserRole.CUSTOMER, UserRole.PROVIDER] else UserRole.CUSTOMER
         user = User(
             google_id=google_id,
@@ -109,6 +119,13 @@ def process_google_login(db: Session, credential: str, selected_role: Optional[U
         db.add(user)
         db.commit()
         db.refresh(user)
+
+    # Ensure unique referral code
+    ensure_user_referral_code(db, user)
+
+    # Link referral if new user and referral code provided
+    if is_new_user and referral_code:
+        link_referral_signup(db, user, referral_code)
 
     if not user.is_active:
         raise HTTPException(
@@ -126,3 +143,4 @@ def process_google_login(db: Session, credential: str, selected_role: Optional[U
     )
 
     return user, access_token
+

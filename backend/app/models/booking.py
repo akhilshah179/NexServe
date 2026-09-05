@@ -6,17 +6,23 @@ from enum import Enum
 from datetime import datetime, timezone
 from sqlalchemy import Column, Integer, String, Float, Boolean, DateTime, ForeignKey, Text, Enum as SQLEnum
 from sqlalchemy.orm import relationship
-from app.database import Base
+from app.database import Base, FlexibleEnum
 
 
 class BookingStatus(str, Enum):
     PENDING = "pending"
+    REQUESTED = "requested"
     CONFIRMED = "confirmed"
+    PROVIDER_ON_THE_WAY = "provider_on_the_way"
     IN_PROGRESS = "in_progress"
-    REJECTED = "rejected"
     COMPLETED = "completed"
     CANCELLED = "cancelled"
+    REJECTED = "rejected"
 
+
+class BookingMode(str, Enum):
+    INSTANT_BOOKING = "instant_booking"
+    REQUEST_BOOKING = "request_booking"
 
 
 class Booking(Base):
@@ -29,9 +35,17 @@ class Booking(Base):
     address_id = Column(Integer, ForeignKey("addresses.id", ondelete="SET NULL"), nullable=True)
     booking_date = Column(DateTime(timezone=True), nullable=False)
     time_slot = Column(String, nullable=False, default="10:00 AM - 11:00 AM")
-    status = Column(SQLEnum(BookingStatus), default=BookingStatus.PENDING, nullable=False, index=True)
+    status = Column(FlexibleEnum(BookingStatus), default=BookingStatus.PENDING, nullable=False, index=True)
+    booking_mode = Column(FlexibleEnum(BookingMode), default=BookingMode.INSTANT_BOOKING, nullable=False)
     total_amount = Column(Float, nullable=False)
     notes = Column(Text, nullable=True)
+
+    # Dynamic Pricing & Discount Fields
+    base_price = Column(Float, nullable=True)
+    discount_amount = Column(Float, default=0.0, nullable=False)
+    referral_discount = Column(Float, default=0.0, nullable=False)
+    coupon_id = Column(Integer, ForeignKey("coupons.id", ondelete="SET NULL"), nullable=True)
+    pricing_breakdown = Column(Text, nullable=True)  # JSON string of pricing details
 
     # Cancellation & Emergency fields
     cancellation_reason = Column(Text, nullable=True)
@@ -50,4 +64,6 @@ class Booking(Base):
     address = relationship("Address", back_populates="bookings")
     review = relationship("Review", back_populates="booking", uselist=False)
     chat_messages = relationship("ChatMessage", back_populates="booking", cascade="all, delete-orphan")
-
+    status_history = relationship("BookingStatusHistory", back_populates="booking", cascade="all, delete-orphan", order_by="BookingStatusHistory.created_at.asc()")
+    attachments = relationship("BookingAttachment", back_populates="booking", cascade="all, delete-orphan")
+    coupon = relationship("Coupon")

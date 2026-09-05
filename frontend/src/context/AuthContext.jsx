@@ -1,11 +1,11 @@
 /**
- * AuthContext — Global authentication state management for NexServe.
+ * AuthContext — Isolated authentication state management for NexServe.
  *
  * Manages:
- * - Current user state & JWT token in localStorage
- * - Google Sign-In authentication handler
+ * - Tab-isolated user session & JWT token in sessionStorage
+ * - Google Sign-In & Demo authentication handler
  * - Automatic session validation on page load
- * - Logout handler
+ * - Session state updates & Logout handler
  */
 
 import { createContext, useContext, useState, useEffect } from "react";
@@ -17,7 +17,10 @@ const TOKEN_KEY = "nexserve_token";
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
-  const [token, setToken] = useState(() => localStorage.getItem(TOKEN_KEY) || "");
+  const [token, setToken] = useState(() => {
+    // sessionStorage provides tab-level isolation for true multi-user support
+    return sessionStorage.getItem(TOKEN_KEY) || "";
+  });
   const [loading, setLoading] = useState(true);
 
   // Validate existing JWT token on app startup
@@ -29,7 +32,7 @@ export function AuthProvider({ children }) {
           setUser(userData);
         } catch (err) {
           console.warn("Invalid or expired session, clearing token:", err.message);
-          localStorage.removeItem(TOKEN_KEY);
+          sessionStorage.removeItem(TOKEN_KEY);
           setToken("");
           setUser(null);
         }
@@ -40,13 +43,13 @@ export function AuthProvider({ children }) {
   }, [token]);
 
   /**
-   * Login or Register via Google ID token.
+   * Login or Register via Google ID token or Demo credential.
    */
-  const loginWithGoogle = async (credential, role = "customer") => {
+  const loginWithGoogle = async (credential, role = "customer", referralCode = null) => {
     setLoading(true);
     try {
-      const data = await googleAuthApi(credential, role);
-      localStorage.setItem(TOKEN_KEY, data.access_token);
+      const data = await googleAuthApi(credential, role, referralCode);
+      sessionStorage.setItem(TOKEN_KEY, data.access_token);
       setToken(data.access_token);
       setUser(data.user);
       setLoading(false);
@@ -58,19 +61,30 @@ export function AuthProvider({ children }) {
   };
 
   /**
-   * Logout user and purge session token.
+   * Update current user in session state.
+   */
+  const updateUser = (updatedData) => {
+    setUser((prev) => (prev ? { ...prev, ...updatedData } : updatedData));
+  };
+
+  /**
+   * Logout user and purge tab session token.
    */
   const logout = async () => {
     if (token) {
-      await logoutApi(token);
+      try {
+        await logoutApi(token);
+      } catch (e) {
+        // Continue clearing local state even if network logout fails
+      }
     }
-    localStorage.removeItem(TOKEN_KEY);
+    sessionStorage.removeItem(TOKEN_KEY);
     setToken("");
     setUser(null);
   };
 
   return (
-    <AuthContext.Provider value={{ user, token, loading, loginWithGoogle, logout }}>
+    <AuthContext.Provider value={{ user, token, loading, loginWithGoogle, updateUser, logout }}>
       {children}
     </AuthContext.Provider>
   );
@@ -83,3 +97,4 @@ export function useAuth() {
   }
   return context;
 }
+

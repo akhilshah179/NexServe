@@ -125,10 +125,21 @@ export default function Navbar() {
             <NavLink to="/services" active={location.pathname.startsWith("/services")}>
               Services
             </NavLink>
+            <NavLink to="/rentals" active={location.pathname.startsWith("/rentals")}>
+              <span className="flex items-center gap-1.5">
+                <span className="inline-block w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+                Rentals
+              </span>
+            </NavLink>
             {user && (user.role === "customer" || user.role === "admin") && (
-              <NavLink to="/history" active={location.pathname === "/history"}>
-                Service History
-              </NavLink>
+              <>
+                <NavLink to="/my-rentals" active={location.pathname === "/my-rentals"}>
+                  My Rentals
+                </NavLink>
+                <NavLink to="/history" active={location.pathname === "/history"}>
+                  Service History
+                </NavLink>
+              </>
             )}
             <NavLink to="/about" active={location.pathname === "/about"}>
               About
@@ -203,13 +214,22 @@ export default function Navbar() {
                         </Link>
 
                         {(user.role === "customer" || user.role === "admin") && (
-                          <Link
-                            to="/history"
-                            onClick={() => setIsUserMenuOpen(false)}
-                            className="flex items-center gap-2.5 px-4 py-2 text-xs font-medium text-gray-300 hover:text-white hover:bg-surface-750 transition-colors"
-                          >
-                            <span>🧾</span> Service History
-                          </Link>
+                          <>
+                            <Link
+                              to="/my-rentals"
+                              onClick={() => setIsUserMenuOpen(false)}
+                              className="flex items-center gap-2.5 px-4 py-2 text-xs font-medium text-gray-300 hover:text-white hover:bg-surface-750 transition-colors"
+                            >
+                              <span>📦</span> My Rentals
+                            </Link>
+                            <Link
+                              to="/history"
+                              onClick={() => setIsUserMenuOpen(false)}
+                              className="flex items-center gap-2.5 px-4 py-2 text-xs font-medium text-gray-300 hover:text-white hover:bg-surface-750 transition-colors"
+                            >
+                              <span>🧾</span> Service History
+                            </Link>
+                          </>
                         )}
                       </div>
 
@@ -279,10 +299,18 @@ export default function Navbar() {
               <MobileNavLink to="/services" onClick={() => setIsMobileMenuOpen(false)}>
                 Services
               </MobileNavLink>
+              <MobileNavLink to="/rentals" onClick={() => setIsMobileMenuOpen(false)}>
+                📦 Rentals
+              </MobileNavLink>
               {user && (user.role === "customer" || user.role === "admin") && (
-                <MobileNavLink to="/history" onClick={() => setIsMobileMenuOpen(false)}>
-                  Service History
-                </MobileNavLink>
+                <>
+                  <MobileNavLink to="/my-rentals" onClick={() => setIsMobileMenuOpen(false)}>
+                    My Rentals
+                  </MobileNavLink>
+                  <MobileNavLink to="/history" onClick={() => setIsMobileMenuOpen(false)}>
+                    Service History
+                  </MobileNavLink>
+                </>
               )}
               <MobileNavLink to="/about" onClick={() => setIsMobileMenuOpen(false)}>
                 About

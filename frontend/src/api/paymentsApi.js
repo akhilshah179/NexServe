@@ -27,3 +27,20 @@ export async function processRefundApi(paymentId, refundAmountPaise = null, reas
   });
   return res.data;
 }
+
+export async function createRentalPaymentOrder(rentalBookingId) {
+  const res = await api.post("/payments/rentals/orders", { rental_booking_id: rentalBookingId });
+  return res.data;
+}
+
+export async function verifyRentalPayment(rentalBookingId, razorpayOrderId, razorpayPaymentId, razorpaySignature) {
+  const res = await api.post("/payments/rentals/verify", {
+    rental_booking_id: rentalBookingId,
+    razorpay_order_id: razorpayOrderId,
+    razorpay_payment_id: razorpayPaymentId,
+    razorpay_signature: razorpaySignature,
+  });
+  return res.data;
+}
+
+

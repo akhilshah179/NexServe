@@ -5,12 +5,13 @@ User & Auth Pydantic Schemas.
 from datetime import datetime
 from typing import Optional, List
 from pydantic import BaseModel, EmailStr, ConfigDict
-from app.models.user import UserRole, VerificationStatus
+from app.models.user import UserRole, VerificationStatus, UserBookingMode
 
 
 class GoogleAuthRequest(BaseModel):
     credential: str  # Google ID token passed from Google Identity Services
     role: Optional[UserRole] = UserRole.CUSTOMER  # Target role if new user creation
+    referral_code: Optional[str] = None  # Referral code applied during registration
 
 
 class UserCreate(BaseModel):
@@ -19,6 +20,7 @@ class UserCreate(BaseModel):
     full_name: str
     phone_number: Optional[str] = None
     role: UserRole = UserRole.CUSTOMER
+    referral_code: Optional[str] = None
 
 
 class UserLogin(BaseModel):
@@ -46,6 +48,7 @@ class ProviderProfileUpdate(BaseModel):
     emergency_available: Optional[bool] = None
     experience_years: Optional[int] = None
     hourly_rate: Optional[float] = None
+    booking_mode: Optional[UserBookingMode] = None
 
 
 class ProviderVerificationAction(BaseModel):
@@ -63,7 +66,12 @@ class UserResponse(BaseModel):
     role: UserRole
     is_active: bool
 
+    # Referral Attributes
+    referral_code: Optional[str] = None
+    referral_credits: float = 0.0
+
     # Provider Metadata & Verification
+    booking_mode: UserBookingMode = UserBookingMode.INSTANT_BOOKING
     verification_status: VerificationStatus = VerificationStatus.APPROVED
     rejection_reason: Optional[str] = None
     bio: Optional[str] = None
@@ -95,4 +103,3 @@ class TokenData(BaseModel):
     user_id: Optional[int] = None
     email: Optional[str] = None
     role: Optional[str] = None
-

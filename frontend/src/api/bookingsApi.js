@@ -31,6 +31,11 @@ export async function cancelBookingApi(bookingId, cancellationReason) {
   return res.data;
 }
 
+export async function providerOnTheWayApi(bookingId) {
+  const res = await api.post(`/bookings/${bookingId}/on-the-way`);
+  return res.data;
+}
+
 export async function startBookingApi(bookingId) {
   const res = await api.post(`/bookings/${bookingId}/start`);
   return res.data;

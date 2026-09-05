@@ -32,7 +32,7 @@ const api = axios.create({
 // Runs BEFORE every request. Attaches the JWT token if available.
 api.interceptors.request.use(
   (config) => {
-    const token = localStorage.getItem("nexserve_token");
+    const token = sessionStorage.getItem("nexserve_token") || localStorage.getItem("nexserve_token");
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
@@ -49,9 +49,9 @@ api.interceptors.response.use(
   (response) => response,
   (error) => {
     if (error.response?.status === 401) {
-      // Token expired or invalid — clear it and redirect to login
+      // Token expired or invalid — clear it from storage
+      sessionStorage.removeItem("nexserve_token");
       localStorage.removeItem("nexserve_token");
-      // We'll add proper redirect logic in the auth module
       console.warn("Authentication expired. Please log in again.");
     }
     return Promise.reject(error);

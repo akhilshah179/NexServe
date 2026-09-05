@@ -1,45 +1,16 @@
 import { useState, useEffect, useRef } from "react";
-import { fetchNotificationsApi, fetchUnreadCountApi, markNotificationReadApi, markAllNotificationsReadApi } from "../../api/notificationsApi";
+import { useNotifications } from "../../context/NotificationContext";
 
 export default function NotificationCenter() {
   const [isOpen, setIsOpen] = useState(false);
-  const [notifications, setNotifications] = useState([]);
-  const [unreadCount, setUnreadCount] = useState(0);
-  const [loading, setLoading] = useState(false);
+  const { notifications, unreadCount, loading, loadNotifications, markRead, markAllRead } = useNotifications();
   const dropdownRef = useRef(null);
-
-  const loadUnreadCount = async () => {
-    try {
-      const data = await fetchUnreadCountApi();
-      setUnreadCount(data.unread_count || 0);
-    } catch (e) {
-      console.warn("Failed to fetch unread count", e);
-    }
-  };
-
-  const loadNotifications = async () => {
-    setLoading(true);
-    try {
-      const data = await fetchNotificationsApi();
-      setNotifications(data);
-    } catch (e) {
-      console.warn("Failed to load notifications", e);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    loadUnreadCount();
-    const interval = setInterval(loadUnreadCount, 15000);
-    return () => clearInterval(interval);
-  }, []);
 
   useEffect(() => {
     if (isOpen) {
       loadNotifications();
     }
-  }, [isOpen]);
+  }, [isOpen, loadNotifications]);
 
   useEffect(() => {
     const handleClickOutside = (e) => {
@@ -52,23 +23,11 @@ export default function NotificationCenter() {
   }, []);
 
   const handleMarkRead = async (id) => {
-    try {
-      await markNotificationReadApi(id);
-      setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, is_read: true } : n)));
-      setUnreadCount((prev) => Math.max(0, prev - 1));
-    } catch (e) {
-      console.error(e);
-    }
+    await markRead(id);
   };
 
   const handleMarkAllRead = async () => {
-    try {
-      await markAllNotificationsReadApi();
-      setNotifications((prev) => prev.map((n) => ({ ...n, is_read: true })));
-      setUnreadCount(0);
-    } catch (e) {
-      console.error(e);
-    }
+    await markAllRead();
   };
 
   return (
