@@ -1,17 +1,42 @@
 /**
  * Rentals.jsx — Physical Item Rental Discovery & Marketplace Page.
- *
- * Features:
- * - 10 Standardized Rental Categories (Vehicles, Cameras, Electronics, Camping, etc.)
- * - Real-time date availability filtering (backend conflict overlap prevention)
- * - Price & fulfillment type filters (Self Pickup / Doorstep Delivery)
- * - Clear display of daily rates and separate refundable security deposits
- * - Responsive glassmorphic item cards with high-res galleries
  */
 
-import { useState, useEffect, useMemo } from "react";
-import { useSearchParams, Link, useNavigate } from "react-router-dom";
+import { useState, useEffect, useMemo, useRef } from "react";
+import { useSearchParams } from "react-router-dom";
+import { AnimatePresence, motion } from "framer-motion";
 import { getRentalCategories, getRentalItems } from "../api/rentalsApi";
+import RentalCard from "../components/cards/RentalCard";
+import {
+  SearchBar,
+  FilterChips,
+  Select,
+  Button,
+  Drawer,
+  Field,
+  Calendar,
+  EmptyState,
+  ErrorState,
+  SkeletonGrid,
+  Stagger,
+  StaggerItem,
+  Reveal,
+  Breadcrumbs,
+  cn,
+} from "../components/ui";
+import { rentalVisual } from "../lib/visuals";
+import { formatDateShort, toISODate, daysBetween } from "../lib/format";
+import {
+  CalendarRange,
+
+  ShieldCheck,
+  Truck,
+  SlidersHorizontal,
+  X,
+  LayoutGrid,
+  BadgeCheck,
+  PackageSearch,
+} from "lucide-react";
 
 export default function Rentals() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -23,23 +48,27 @@ export default function Rentals() {
   const [categories, setCategories] = useState([]);
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [datesOpen, setDatesOpen] = useState(false);
 
   // Filter States
   const [selectedCategory, setSelectedCategory] = useState(initialCategory);
   const [searchQuery, setSearchQuery] = useState(initialSearch);
   const [startDate, setStartDate] = useState(initialStartDate);
   const [endDate, setEndDate] = useState(initialEndDate);
-  const [fulfillmentFilter, setFulfillmentFilter] = useState("all"); // "all" | "pickup" | "delivery"
-  const [priceFilter, setPriceFilter] = useState("all"); // "all" | "under500" | "500-2000" | "above2000"
-  const [sortBy, setSortBy] = useState("popularity"); // "popularity" | "price-asc" | "price-desc" | "rating"
+  const [fulfillmentFilter, setFulfillmentFilter] = useState("all");
+  const [priceFilter, setPriceFilter] = useState("all");
+  const [sortBy, setSortBy] = useState("popularity");
 
-  const navigate = useNavigate();
 
   // Load Categories and Items from API
   useEffect(() => {
     async function loadData() {
       try {
         setLoading(true);
+        setLoadError(false);
         const [catData, itemData] = await Promise.all([
           getRentalCategories(),
           getRentalItems({
@@ -53,12 +82,13 @@ export default function Rentals() {
         setItems(itemData || []);
       } catch (err) {
         console.error("Failed to load rental marketplace data:", err);
+        setLoadError(true);
       } finally {
         setLoading(false);
       }
     }
     loadData();
-  }, [selectedCategory, startDate, endDate]);
+  }, [selectedCategory, startDate, endDate, reloadKey]);
 
   // Sync state with URL params
   useEffect(() => {
@@ -72,7 +102,6 @@ export default function Rentals() {
     if (ed !== null) setEndDate(ed);
   }, [searchParams]);
 
-  // Handle Category selection
   const handleCategorySelect = (catSlug) => {
     setSelectedCategory(catSlug);
     const newParams = {};
@@ -83,7 +112,6 @@ export default function Rentals() {
     setSearchParams(newParams);
   };
 
-  // Filter and sort items in frontend for immediate responsiveness
   const filteredItems = useMemo(() => {
     let result = [...items];
 
@@ -121,7 +149,8 @@ export default function Rentals() {
       if (sortBy === "rating") return (b.rating || 4.8) - (a.rating || 4.8);
       if (sortBy === "price-asc") return rateA - rateB;
       if (sortBy === "price-desc") return rateB - rateA;
-      if (sortBy === "popularity") return (b.total_rentals || b.review_count || 0) - (a.total_rentals || a.review_count || 0);
+      if (sortBy === "popularity")
+        return (b.total_rentals || b.review_count || 0) - (a.total_rentals || a.review_count || 0);
       return 0;
     });
 
@@ -129,373 +158,330 @@ export default function Rentals() {
   }, [items, searchQuery, fulfillmentFilter, priceFilter, sortBy]);
 
   const activeCategoryObj = categories.find((c) => c.slug === selectedCategory);
+  const datesSelected = Boolean(startDate && endDate);
+  const nights = datesSelected ? daysBetween(startDate, endDate) : 0;
 
-  return (
-    <div className="min-h-screen pt-24 pb-20 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto">
-      {/* ═══ HEADER BANNER ═══ */}
-      <div className="text-center mb-8 animate-slide-up">
-        <span className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full text-xs font-bold bg-emerald-500/15 text-emerald-400 border border-emerald-500/25 mb-3 shadow-lg shadow-emerald-500/10">
-          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
-          📦 NexServe Rental Marketplace • Escrow Protected Deposits
-        </span>
-        <h1 className="text-3xl sm:text-5xl font-extrabold text-white tracking-tight mb-3">
-          Rent Top Equipment, Gear & Vehicles
-        </h1>
-        <p className="text-sm sm:text-base text-gray-400 max-w-2xl mx-auto leading-relaxed">
-          From Sony FX3 cinema cameras to royal Enfield bikes, DJ consoles, camping tents, and gaming rigs.
-          Book verified gear with doorstep delivery or express self-pickup.
-        </p>
-      </div>
+  const writeParams = (overrides) => {
+    const next = {
+      category: selectedCategory !== "all" ? selectedCategory : "",
+      search: searchQuery,
+      start_date: startDate,
+      end_date: endDate,
+      ...overrides,
+    };
+    const params = {};
+    Object.entries(next).forEach(([k, v]) => {
+      if (v) params[k] = v;
+    });
+    setSearchParams(params, { replace: true });
+  };
 
-      {/* ═══ DATE RANGE & SEARCH FILTER BAR ═══ */}
-      <div className="mb-8 p-5 sm:p-6 rounded-3xl bg-surface-900/90 border border-white/10 shadow-2xl backdrop-blur-xl space-y-4">
-        <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-center">
-          {/* Search Query */}
-          <div className="md:col-span-5 relative">
-            <input
-              type="text"
-              placeholder="Search cameras, tents, gaming consoles, bikes, laptops..."
-              value={searchQuery}
-              onChange={(e) => {
-                setSearchQuery(e.target.value);
-                setSearchParams({
-                  search: e.target.value,
-                  ...(selectedCategory !== "all" ? { category: selectedCategory } : {}),
-                  ...(startDate ? { start_date: startDate } : {}),
-                  ...(endDate ? { end_date: endDate } : {}),
-                });
-              }}
-              className="w-full pl-11 pr-10 py-3 rounded-2xl bg-surface-800 border border-white/10 text-xs sm:text-sm text-white placeholder-gray-400 outline-none focus:border-emerald-500/60 focus:ring-1 focus:ring-emerald-500/30 transition-all"
-            />
-            <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 text-base">🔍</span>
-            {searchQuery && (
-              <button
-                onClick={() => {
-                  setSearchQuery("");
-                  const p = {};
-                  if (selectedCategory !== "all") p.category = selectedCategory;
-                  if (startDate) p.start_date = startDate;
-                  if (endDate) p.end_date = endDate;
-                  setSearchParams(p);
-                }}
-                className="absolute right-3 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full bg-surface-700 text-xs text-gray-300 hover:text-white flex items-center justify-center transition-colors"
-              >
-                ✕
-              </button>
-            )}
-          </div>
+  const updateSearch = (value) => {
+    setSearchQuery(value);
+    writeParams({ search: value });
+  };
 
-          {/* Date Range: Start Date */}
-          <div className="md:col-span-3">
-            <div className="flex items-center gap-2 bg-surface-800 border border-white/10 rounded-2xl px-3 py-2 text-xs">
-              <span className="text-gray-400 font-medium whitespace-nowrap">From:</span>
-              <input
-                type="date"
-                value={startDate}
-                min={new Date().toISOString().split("T")[0]}
-                onChange={(e) => {
-                  setStartDate(e.target.value);
-                  setSearchParams({
-                    ...(selectedCategory !== "all" ? { category: selectedCategory } : {}),
-                    ...(searchQuery ? { search: searchQuery } : {}),
-                    start_date: e.target.value,
-                    ...(endDate ? { end_date: endDate } : {}),
-                  });
-                }}
-                className="bg-transparent text-white text-xs outline-none w-full cursor-pointer"
-              />
-            </div>
-          </div>
+  const applyDates = ({ start, end }) => {
+    setStartDate(start);
+    setEndDate(end);
+    if (start && end) {
+      writeParams({ start_date: start, end_date: end });
+      setDatesOpen(false);
+    }
+  };
 
-          {/* Date Range: End Date */}
-          <div className="md:col-span-3">
-            <div className="flex items-center gap-2 bg-surface-800 border border-white/10 rounded-2xl px-3 py-2 text-xs">
-              <span className="text-gray-400 font-medium whitespace-nowrap">Until:</span>
-              <input
-                type="date"
-                value={endDate}
-                min={startDate || new Date().toISOString().split("T")[0]}
-                onChange={(e) => {
-                  setEndDate(e.target.value);
-                  setSearchParams({
-                    ...(selectedCategory !== "all" ? { category: selectedCategory } : {}),
-                    ...(searchQuery ? { search: searchQuery } : {}),
-                    ...(startDate ? { start_date: startDate } : {}),
-                    end_date: e.target.value,
-                  });
-                }}
-                className="bg-transparent text-white text-xs outline-none w-full cursor-pointer"
-              />
-            </div>
-          </div>
+  const clearDates = () => {
+    setStartDate("");
+    setEndDate("");
+    writeParams({ start_date: "", end_date: "" });
+  };
 
-          {/* Reset button */}
-          <div className="md:col-span-1 flex justify-end">
-            {(startDate || endDate || searchQuery || selectedCategory !== "all") && (
-              <button
-                onClick={() => {
-                  setSearchQuery("");
-                  setSelectedCategory("all");
-                  setStartDate("");
-                  setEndDate("");
-                  setFulfillmentFilter("all");
-                  setPriceFilter("all");
-                  setSearchParams({});
-                }}
-                className="w-full py-2.5 px-2 rounded-xl bg-surface-800 hover:bg-surface-700 text-gray-300 hover:text-white text-xs font-semibold border border-white/10 transition-colors text-center"
-                title="Reset Filters"
-              >
-                Reset
-              </button>
-            )}
-          </div>
-        </div>
+  const resetAll = () => {
+    setSearchQuery("");
+    setSelectedCategory("all");
+    setStartDate("");
+    setEndDate("");
+    setFulfillmentFilter("all");
+    setPriceFilter("all");
+    setSearchParams({});
+  };
 
-        {/* Category Pills Navigation */}
-        <div className="flex items-center gap-2 overflow-x-auto pt-2 pb-1 scrollbar-none border-t border-white/5">
-          <button
-            onClick={() => handleCategorySelect("all")}
-            className={`px-4 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition-all flex items-center gap-1.5 ${
-              selectedCategory === "all"
-                ? "bg-emerald-600 text-white shadow-lg shadow-emerald-500/25 ring-1 ring-emerald-400"
-                : "bg-surface-850 border border-white/10 text-gray-300 hover:text-white hover:bg-surface-800"
-            }`}
-          >
-            <span>🌟</span>
-            <span>All Rentals ({items.length})</span>
-          </button>
+  const activeFilterCount = (fulfillmentFilter !== "all" ? 1 : 0) + (priceFilter !== "all" ? 1 : 0);
+  const hasAnyFilter = searchQuery || selectedCategory !== "all" || datesSelected || activeFilterCount > 0;
 
-          {categories.map((cat) => (
-            <button
-              key={cat.id}
-              onClick={() => handleCategorySelect(cat.slug)}
-              className={`px-4 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition-all flex items-center gap-2 ${
-                selectedCategory === cat.slug
-                  ? "bg-emerald-600 text-white shadow-lg shadow-emerald-500/25 ring-1 ring-emerald-400"
-                  : "bg-surface-850 border border-white/10 text-gray-300 hover:text-white hover:bg-surface-800"
-              }`}
-            >
-              <span>{cat.icon_url || "📦"}</span>
-              <span>{cat.name}</span>
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* ═══ FILTER & SORT TOOLBAR ═══ */}
-      <div className="p-4 rounded-2xl bg-surface-850/80 border border-white/10 flex flex-wrap items-center justify-between gap-4 mb-8 text-xs backdrop-blur-md shadow-lg">
-        <div className="flex flex-wrap items-center gap-4">
-          {/* Active Category Indicator */}
-          <div className="flex items-center gap-2">
-            <span className="text-gray-400 font-medium">Viewing:</span>
-            <span className="px-2.5 py-1 rounded-lg bg-surface-800 text-emerald-300 font-bold border border-white/10">
-              {activeCategoryObj ? activeCategoryObj.name : "All Available Items"}
-            </span>
-            <span className="text-gray-400">({filteredItems.length} items found)</span>
-          </div>
-
-          {/* Fulfillment Filter */}
-          <div className="flex items-center gap-2">
-            <span className="text-gray-400 font-semibold">Fulfillment:</span>
-            <select
-              value={fulfillmentFilter}
-              onChange={(e) => setFulfillmentFilter(e.target.value)}
-              className="bg-surface-800 border border-white/10 text-white rounded-lg px-2.5 py-1.5 outline-none cursor-pointer"
-            >
-              <option value="all">All Options</option>
-              <option value="delivery">🚚 Doorstep Delivery</option>
-              <option value="pickup">📍 Self Pickup</option>
-            </select>
-          </div>
-
-          {/* Price Range Filter */}
-          <div className="flex items-center gap-2">
-            <span className="text-gray-400 font-semibold">Daily Rate:</span>
-            <select
-              value={priceFilter}
-              onChange={(e) => setPriceFilter(e.target.value)}
-              className="bg-surface-800 border border-white/10 text-white rounded-lg px-2.5 py-1.5 outline-none cursor-pointer"
-            >
-              <option value="all">Any Price</option>
-              <option value="under500">Under ₹500/day</option>
-              <option value="500-2000">₹500 – ₹2,000/day</option>
-              <option value="above2000">Above ₹2,000/day</option>
-            </select>
-          </div>
-        </div>
-
-        {/* Sort Control */}
-        <div className="flex items-center gap-2">
-          <span className="text-gray-400 font-semibold">Sort By:</span>
-          <select
-            value={sortBy}
-            onChange={(e) => setSortBy(e.target.value)}
-            className="bg-surface-800 border border-white/10 text-white rounded-lg px-2.5 py-1.5 outline-none cursor-pointer font-medium"
-          >
-            <option value="popularity">Most Rented</option>
-            <option value="rating">Top Rated</option>
-            <option value="price-asc">Price: Low to High</option>
-            <option value="price-desc">Price: High to Low</option>
-          </select>
-        </div>
-      </div>
-
-      {/* ═══ RENTAL ITEMS GRID ═══ */}
-      {loading ? (
-        <div className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-          {[...Array(8)].map((_, i) => (
-            <div key={i} className="h-96 skeleton rounded-3xl" />
-          ))}
-        </div>
-      ) : filteredItems.length === 0 ? (
-        <div className="py-20 text-center text-gray-400 p-8 rounded-3xl bg-surface-850/50 border border-white/5 space-y-4">
-          <span className="text-6xl block">📦</span>
-          <h3 className="text-lg font-bold text-white">No rental items found</h3>
-          <p className="text-xs text-gray-400 max-w-md mx-auto">
-            {startDate && endDate
-              ? "All items in this category might be currently booked for the selected dates. Try different dates or categories."
-              : "Try adjusting your search keywords, price, or category filters."}
-          </p>
-          <button
-            onClick={() => {
-              setSearchQuery("");
-              setSelectedCategory("all");
-              setStartDate("");
-              setEndDate("");
-              setFulfillmentFilter("all");
-              setPriceFilter("all");
-              setSearchParams({});
-            }}
-            className="px-5 py-2.5 rounded-xl bg-emerald-600 text-white text-xs font-bold hover:bg-emerald-500 transition-colors shadow-lg shadow-emerald-600/20"
-          >
-            Clear All Filters
-          </button>
-        </div>
-      ) : (
-        <div className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6 animate-fade-in">
-          {filteredItems.map((item) => (
-            <RentalCard
-              key={item.id}
-              item={item}
-              startDate={startDate}
-              endDate={endDate}
-              onSelect={() => navigate(`/rentals/${item.id}${startDate && endDate ? `?start_date=${startDate}&end_date=${endDate}` : ""}`)}
-            />
-          ))}
-        </div>
-      )}
-    </div>
+  const filterFields = (
+    <>
+      <Field label="Fulfilment">
+        <Select rental value={fulfillmentFilter} onChange={(e) => setFulfillmentFilter(e.target.value)}>
+          <option value="all">Delivery or pickup</option>
+          <option value="delivery">Doorstep delivery</option>
+          <option value="pickup">Self pickup</option>
+        </Select>
+      </Field>
+      <Field label="Daily rate">
+        <Select rental value={priceFilter} onChange={(e) => setPriceFilter(e.target.value)}>
+          <option value="all">Any price</option>
+          <option value="under500">Under ₹500/day</option>
+          <option value="500-2000">₹500 – ₹2,000/day</option>
+          <option value="above2000">Above ₹2,000/day</option>
+        </Select>
+      </Field>
+      <Field label="Sort by">
+        <Select rental value={sortBy} onChange={(e) => setSortBy(e.target.value)}>
+          <option value="popularity">Most rented</option>
+          <option value="rating">Top rated</option>
+          <option value="price-asc">Price: low to high</option>
+          <option value="price-desc">Price: high to low</option>
+        </Select>
+      </Field>
+    </>
   );
-}
-
-/**
- * High-aesthetic Rental Item Card with cover photo, badges, daily rate, and security deposit.
- */
-function RentalCard({ item, startDate, endDate, onSelect }) {
-  const primaryImage =
-    item.images?.find((img) => img.is_primary)?.image_url ||
-    item.images?.[0]?.image_url ||
-    "https://images.unsplash.com/photo-1516035069371-29a1b244cc32?auto=format&fit=crop&w=600&q=80";
-
-  const title = item.title || item.name || "Rental Item";
-  const dailyRate = item.daily_rate ?? item.price_per_day ?? 0;
-  const securityDeposit = item.security_deposit ?? 0;
-  const isDelivery = item.delivery_available ?? item.is_delivery_available;
-  const isPickup = item.pickup_available ?? item.is_pickup_available;
-  const city = item.city || item.location || "Available in Mumbai";
-  const deliveryFee = item.delivery_fee ?? 0;
 
   return (
-    <div
-      onClick={onSelect}
-      className="rounded-3xl glass-card overflow-hidden flex flex-col justify-between group hover:border-emerald-500/40 transition-all duration-300 cursor-pointer shadow-xl hover:shadow-emerald-500/10 hover:-translate-y-1"
-    >
-      <div>
-        {/* Cover Image & Overlays */}
-        <div className="relative h-48 sm:h-52 w-full overflow-hidden bg-surface-900">
-          <img
-            src={primaryImage}
-            alt={title}
-            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-            loading="lazy"
+    <div className="pb-24">
+      {/* Rentals hero — emerald identity */}
+      <header className="relative pt-28 sm:pt-32 pb-10 overflow-hidden">
+        <div className="absolute inset-0 -z-10" aria-hidden="true">
+          <div className="absolute inset-0 bg-[radial-gradient(60%_80%_at_70%_0%,rgb(20_184_143/0.14),transparent)]" />
+          <div className="absolute inset-0 bg-grid opacity-50 [mask-image:radial-gradient(ellipse_60%_70%_at_60%_0%,black,transparent)]" />
+        </div>
+        <div className="container-page">
+          <Breadcrumbs items={[{ label: "Home", to: "/" }, { label: "Rentals" }]} className="mb-5" />
+          <Reveal y={12} className="max-w-3xl">
+            <p className="eyebrow eyebrow-rental mb-3">NexServe Rentals</p>
+            <h1 className="text-[34px] sm:text-5xl font-semibold text-white leading-[1.08]">
+              Rent verified gear for a day, a week, or a trip.
+            </h1>
+            <p className="mt-4 text-[15px] sm:text-lg text-ink-400 leading-relaxed max-w-2xl">
+              Cameras, camping kits, sound systems, consoles and more from verified local hosts. Every order includes a refundable deposit.
+            </p>
+          </Reveal>
+
+          {/* Search + dates */}
+          <Reveal delay={0.1} className="mt-8">
+            <div className="p-2 rounded-[20px] bg-surface-900/90 border border-white/[0.08] shadow-[0_24px_60px_-24px_rgb(0_0_0/0.8)] flex flex-col md:flex-row gap-2">
+              <SearchBar
+                className="flex-1"
+                value={searchQuery}
+                onChange={updateSearch}
+                accent="rental"
+                placeholder="Search cameras, tents, speakers, consoles…"
+                ariaLabel="Search rentals"
+              />
+              <DatePickerButton
+                open={datesOpen}
+                setOpen={setDatesOpen}
+                start={startDate}
+                end={endDate}
+                nights={nights}
+                onChange={applyDates}
+                onClear={clearDates}
+              />
+            </div>
+          </Reveal>
+
+          <ul className="mt-6 flex flex-wrap gap-x-6 gap-y-2 text-[13px] text-ink-400">
+            <li className="flex items-center gap-1.5"><ShieldCheck className="w-4 h-4 text-teal-300" aria-hidden="true" />Refundable deposits</li>
+            <li className="flex items-center gap-1.5"><Truck className="w-4 h-4 text-emerald-300" aria-hidden="true" />Delivery or self-pickup</li>
+            <li className="flex items-center gap-1.5"><BadgeCheck className="w-4 h-4 text-emerald-300" aria-hidden="true" />Verified hosts</li>
+          </ul>
+        </div>
+      </header>
+
+      {/* Sticky category + filter bar */}
+      <div className="sticky top-16 z-30 bg-surface-950/85 backdrop-blur-xl border-y border-white/[0.06]">
+        <div className="container-page py-3 flex items-center gap-3">
+          <FilterChips
+            ariaLabel="Rental category"
+            accent="rental"
+            className="flex-1 min-w-0"
+            value={selectedCategory}
+            onChange={(slug) => handleCategorySelect(slug)}
+            items={[
+              { id: "all", label: "All gear", icon: LayoutGrid },
+              ...categories.map((c) => ({ id: c.slug, label: c.name, icon: rentalVisual(c).icon, count: c.item_count })),
+            ]}
           />
-          <div className="absolute inset-0 bg-gradient-to-t from-surface-950/80 via-transparent to-black/30" />
-
-          {/* Category Badge */}
-          <div className="absolute top-3 left-3 flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-bold bg-surface-950/80 backdrop-blur-md text-emerald-300 border border-emerald-500/30 shadow">
-            <span>{item.category?.icon_url || "📦"}</span>
-            <span>{item.category?.name || "Rental"}</span>
+          <div className="hidden lg:flex items-center gap-2 shrink-0">
+            <Select rental className="!h-9 !min-h-9 !py-0 !text-[13px] w-[164px]" value={fulfillmentFilter} onChange={(e) => setFulfillmentFilter(e.target.value)} aria-label="Fulfilment">
+              <option value="all">Delivery or pickup</option>
+              <option value="delivery">Delivery</option>
+              <option value="pickup">Self pickup</option>
+            </Select>
+            <Select rental className="!h-9 !min-h-9 !py-0 !text-[13px] w-[140px]" value={priceFilter} onChange={(e) => setPriceFilter(e.target.value)} aria-label="Daily rate">
+              <option value="all">Any price</option>
+              <option value="under500">Under ₹500</option>
+              <option value="500-2000">₹500 – ₹2,000</option>
+              <option value="above2000">Above ₹2,000</option>
+            </Select>
+            <Select rental className="!h-9 !min-h-9 !py-0 !text-[13px] w-[160px]" value={sortBy} onChange={(e) => setSortBy(e.target.value)} aria-label="Sort rentals">
+              <option value="popularity">Sort: Most rented</option>
+              <option value="rating">Sort: Top rated</option>
+              <option value="price-asc">Sort: Price low–high</option>
+              <option value="price-desc">Sort: Price high–low</option>
+            </Select>
           </div>
-
-          {/* Rating Badge */}
-          <div className="absolute top-3 right-3 flex items-center gap-1 px-2.5 py-1 rounded-full text-[11px] font-bold bg-surface-950/80 backdrop-blur-md text-yellow-400 border border-white/10 shadow">
-            <span>⭐</span>
-            <span>{item.rating || "4.9"}</span>
-            <span className="text-gray-400 text-[9px]">({item.review_count || 12})</span>
-          </div>
-
-          {/* Fulfillment Capabilities at bottom of image */}
-          <div className="absolute bottom-3 left-3 right-3 flex items-center gap-1.5 flex-wrap">
-            {isDelivery && (
-              <span className="px-2 py-0.5 rounded-md text-[10px] font-semibold bg-emerald-950/90 text-emerald-300 border border-emerald-500/40">
-                🚚 Delivery ₹{deliveryFee}
-              </span>
+          <Button variant="secondary" size="sm" icon={SlidersHorizontal} className="lg:hidden shrink-0" onClick={() => setFiltersOpen(true)} aria-label="Open filters">
+            <span className="hidden sm:inline">Filters</span>
+            {activeFilterCount > 0 && (
+              <span className="w-5 h-5 rounded-full bg-emerald-400 text-surface-950 text-[11px] flex items-center justify-center">{activeFilterCount}</span>
             )}
-            {isPickup && (
-              <span className="px-2 py-0.5 rounded-md text-[10px] font-semibold bg-surface-900/90 text-gray-200 border border-white/10">
-                📍 Express Pickup
-              </span>
-            )}
-          </div>
-        </div>
-
-        {/* Item Info Body */}
-        <div className="p-4 sm:p-5 space-y-2">
-          {item.brand && (
-            <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-400/80">
-              {item.brand} {item.model ? `• ${item.model}` : ""}
-            </span>
-          )}
-
-          <h3 className="text-base font-bold text-white line-clamp-1 group-hover:text-emerald-300 transition-colors">
-            {title}
-          </h3>
-
-          <p className="text-xs text-gray-400 line-clamp-2 leading-relaxed">
-            {item.description}
-          </p>
-
-          <div className="flex items-center gap-2 pt-1 text-[11px] text-gray-400">
-            <span>📍 {city}</span>
-            <span>•</span>
-            <span className="text-gray-400">Min {item.min_rental_days || 1} day(s)</span>
-          </div>
+          </Button>
         </div>
       </div>
 
-      {/* Pricing & CTA Footer */}
-      <div className="p-4 sm:p-5 pt-3 border-t border-white/5 bg-surface-900/40 flex items-end justify-between gap-3">
-        <div>
-          <div className="flex items-baseline gap-1">
-            <span className="text-xl font-extrabold text-white">₹{dailyRate}</span>
-            <span className="text-[11px] text-gray-400">/ day</span>
+      <div className="container-page pt-8">
+        {!loading && !loadError && (
+          <div className="flex flex-wrap items-center gap-2 mb-8 text-sm" aria-live="polite">
+            <p className="text-ink-300">
+              <span className="text-white font-semibold tabular">{filteredItems.length}</span> {filteredItems.length === 1 ? "item" : "items"}
+              {activeCategoryObj ? ` in ${activeCategoryObj.name}` : ""}
+              {datesSelected ? ` available ${formatDateShort(startDate)} – ${formatDateShort(endDate)}` : ""}
+            </p>
+            {hasAnyFilter && (
+              <button type="button" onClick={resetAll} className="inline-flex items-center gap-1 h-7 px-2.5 rounded-lg text-[13px] text-ink-300 hover:text-white bg-white/[0.04] hover:bg-white/[0.08] transition-colors">
+                <X className="w-3.5 h-3.5" aria-hidden="true" />
+                Clear all
+              </button>
+            )}
           </div>
-          <div className="text-[10px] text-emerald-400/90 font-medium">
-            + ₹{securityDeposit} refundable deposit
-          </div>
-        </div>
+        )}
 
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            onSelect();
-          }}
-          className="px-4 py-2 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-500 hover:from-emerald-500 hover:to-teal-400 text-white font-bold text-xs shadow-lg shadow-emerald-500/20 transition-all flex items-center gap-1.5 flex-shrink-0"
-        >
-          <span>Rent Now</span>
-          <span>→</span>
-        </button>
+        {loading ? (
+          <SkeletonGrid count={8} className="lg:grid-cols-3 xl:grid-cols-4" />
+        ) : loadError ? (
+          <ErrorState title="Rentals didn't load" onRetry={() => setReloadKey((k) => k + 1)} />
+        ) : filteredItems.length === 0 ? (
+          <EmptyState
+            tone="rental"
+            icon={PackageSearch}
+            title={datesSelected ? "Nothing free for those dates" : "No rentals match your filters"}
+            description={
+              datesSelected
+                ? "Everything matching is booked for that range. Try shifting your dates or another category."
+                : "Try a different keyword, category, or price range."
+            }
+            action={<Button variant="rental" onClick={resetAll}>Clear all filters</Button>}
+            secondaryAction={datesSelected ? <Button variant="ghost" onClick={clearDates}>Remove dates</Button> : null}
+          />
+        ) : (
+          <Stagger key={`${selectedCategory}-${startDate}-${endDate}-${sortBy}`} animateOnMount className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+            {filteredItems.map((item) => (
+              <StaggerItem key={item.id}>
+                <RentalCard
+                  item={item}
+                  datesSelected={datesSelected}
+                  to={`/rentals/${item.id}${datesSelected ? `?start_date=${startDate}&end_date=${endDate}` : ""}`}
+                />
+              </StaggerItem>
+            ))}
+          </Stagger>
+        )}
       </div>
+
+      <Drawer
+        open={filtersOpen}
+        onClose={() => setFiltersOpen(false)}
+        title="Filters"
+        footer={
+          <div className="grid grid-cols-2 gap-2">
+            <Button variant="secondary" onClick={() => { setFulfillmentFilter("all"); setPriceFilter("all"); setSortBy("popularity"); }}>
+              Reset
+            </Button>
+            <Button variant="rental" onClick={() => setFiltersOpen(false)}>Show {filteredItems.length} items</Button>
+          </div>
+        }
+      >
+        <div className="p-5 space-y-5">{filterFields}</div>
+      </Drawer>
     </div>
   );
 }
+
+/** Date range trigger with an animated popover calendar. */
+function DatePickerButton({ open, setOpen, start, end, nights, onChange, onClear }) {
+  const ref = useRef(null);
+  const [draft, setDraft] = useState({ start, end });
+
+  useEffect(() => {
+    if (open) setDraft({ start, end });
+  }, [open, start, end]);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e) => ref.current && !ref.current.contains(e.target) && setOpen(false);
+    const onKey = (e) => e.key === "Escape" && setOpen(false);
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open, setOpen]);
+
+  const label = start && end ? `${formatDateShort(start)} → ${formatDateShort(end)}` : "Add dates";
+
+  return (
+    <div ref={ref} className="relative md:w-[300px] shrink-0">
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        aria-expanded={open}
+        aria-haspopup="dialog"
+        className={cn(
+          "w-full h-12 px-4 rounded-2xl flex items-center gap-3 text-left border transition-colors",
+          open ? "border-emerald-400/50 bg-surface-800" : "border-white/[0.08] bg-surface-850 hover:border-white/15"
+        )}
+      >
+        <CalendarRange className="w-[18px] h-[18px] text-emerald-300 shrink-0" aria-hidden="true" />
+        <span className="flex-1 min-w-0">
+          <span className="block text-[11px] text-ink-400 leading-none">Rental dates</span>
+          <span className={cn("block text-sm mt-1 truncate", start && end ? "text-white font-medium" : "text-ink-400")}>{label}</span>
+        </span>
+        {start && end && (
+          <span className="text-xs text-emerald-300 tabular shrink-0">{nights || 1}d</span>
+        )}
+      </button>
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            role="dialog"
+            aria-label="Choose rental dates"
+            initial={{ opacity: 0, y: -6, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -6, scale: 0.98 }}
+            transition={{ duration: 0.2 }}
+            className="absolute right-0 top-full mt-2 z-40 w-[min(340px,calc(100vw-2rem))] p-4 rounded-2xl bg-surface-850 border border-white/[0.08] shadow-[var(--shadow-pop)] origin-top-right"
+          >
+            <p className="text-xs text-ink-400 mb-3">
+              {!draft.start ? "Select a pickup date" : !draft.end ? "Now select a return date" : "Dates selected"}
+            </p>
+            <Calendar
+              mode="range"
+              accent="rental"
+              value={draft}
+              min={toISODate(new Date())}
+              onChange={(v) => {
+                setDraft(v);
+                if (v.start && v.end) onChange(v);
+              }}
+            />
+            {(start || end) && (
+              <button
+                type="button"
+                onClick={() => {
+                  onClear();
+                  setOpen(false);
+                }}
+                className="mt-3 w-full h-9 rounded-lg text-[13px] text-ink-300 hover:text-white hover:bg-white/[0.05] transition-colors"
+              >
+                Clear dates
+              </button>
+            )}
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+

@@ -60,10 +60,29 @@ import {
 } from "react-icons/fi";
 
 import { useNotifications } from "../context/NotificationContext";
+import {
+  BadgeCheck,
+  Plus,
+  Package,
+  PackageOpen,
+  Wallet,
+  Inbox,
+  CheckCircle2,
+  CalendarDays,
+  Wrench,
+  Star,
+  UserCog,
+} from "lucide-react";
+import { Avatar, Button, StatCard, Switch, Tabs, Reveal, useToast } from "../components/ui";
+import { formatINR, getErrorMessage } from "../lib/format";
 
 export default function ProviderDashboard() {
   const { user, updateUser } = useAuth();
   const { lastEvent } = useNotifications();
+  const { toast, confirm } = useToast();
+  // Route all feedback through toasts: failures as errors, everything else as success.
+  const notify = (msg) =>
+    /fail|error|unable|could not|invalid/i.test(String(msg)) ? toast.error(String(msg)) : toast.success(String(msg));
   const [services, setServices] = useState([]);
   const [bookings, setBookings] = useState([]);
   const [reviews, setReviews] = useState([]);
@@ -172,6 +191,8 @@ export default function ProviderDashboard() {
     }
   }, [user?.id]);
 
+  const [rentalStatusFilter, setRentalStatusFilter] = useState("all"); // "all" | "requests" | "upcoming" | "active" | "completed" | "cancelled"
+
   // React to incoming real-time notifications & booking updates
   useEffect(() => {
     if (lastEvent?.booking) {
@@ -188,6 +209,19 @@ export default function ProviderDashboard() {
         prev.map((b) => (b.id === lastEvent.booking_id ? { ...b, status: lastEvent.status, notes: lastEvent.notes || b.notes } : b))
       );
     }
+
+    // Rental real-time events handling (e.g. new_rental_booking, rental_status_update)
+    if (
+      lastEvent?.type === "rental_booking_update" ||
+      lastEvent?.rental_booking_id ||
+      lastEvent?.event === "new_rental_booking" ||
+      lastEvent?.event === "rental_status_update" ||
+      lastEvent?.event === "rental_returned_inspected"
+    ) {
+      getProviderRentalBookings().then((rentBookData) => {
+        if (rentBookData) setRentalBookings(rentBookData);
+      }).catch(console.warn);
+    }
   }, [lastEvent]);
 
   const handleToggleBookingMode = async () => {
@@ -200,7 +234,7 @@ export default function ProviderDashboard() {
         updateUser({ ...user, booking_mode: nextMode });
       }
     } catch (err) {
-      alert(err.response?.data?.detail || "Failed to update booking mode.");
+      toast.error(getErrorMessage(err, "Failed to update booking mode."));
     } finally {
       setUpdatingMode(false);
     }
@@ -212,7 +246,7 @@ export default function ProviderDashboard() {
       const updated = await confirmBookingApi(id);
       setBookings((prev) => prev.map((b) => (b.id === id ? updated : b)));
     } catch (err) {
-      alert(err.response?.data?.detail || "Failed to accept booking.");
+      toast.error(getErrorMessage(err, "Failed to accept booking."));
     } finally {
       setActionLoading(null);
     }
@@ -224,7 +258,7 @@ export default function ProviderDashboard() {
       const updated = await rejectBookingApi(id);
       setBookings((prev) => prev.map((b) => (b.id === id ? updated : b)));
     } catch (err) {
-      alert(err.response?.data?.detail || "Failed to reject booking.");
+      toast.error(getErrorMessage(err, "Failed to reject booking."));
     } finally {
       setActionLoading(null);
     }
@@ -236,7 +270,7 @@ export default function ProviderDashboard() {
       const updated = await providerOnTheWayApi(id);
       setBookings((prev) => prev.map((b) => (b.id === id ? updated : b)));
     } catch (err) {
-      alert(err.response?.data?.detail || "Failed to update status.");
+      toast.error(getErrorMessage(err, "Failed to update status."));
     } finally {
       setActionLoading(null);
     }
@@ -248,7 +282,7 @@ export default function ProviderDashboard() {
       const updated = await startBookingApi(id);
       setBookings((prev) => prev.map((b) => (b.id === id ? updated : b)));
     } catch (err) {
-      alert(err.response?.data?.detail || "Failed to start service.");
+      toast.error(getErrorMessage(err, "Failed to start service."));
     } finally {
       setActionLoading(null);
     }
@@ -259,9 +293,9 @@ export default function ProviderDashboard() {
     try {
       const updated = await completeBookingApi(id);
       setBookings((prev) => prev.map((b) => (b.id === id ? updated : b)));
-      alert("Booking marked as COMPLETED! Referral rewards and payouts updated.");
+      notify("Booking marked as COMPLETED! Referral rewards and payouts updated.");
     } catch (err) {
-      alert(err.response?.data?.detail || "Failed to complete booking.");
+      toast.error(getErrorMessage(err, "Failed to complete booking."));
     } finally {
       setActionLoading(null);
     }
@@ -280,14 +314,14 @@ export default function ProviderDashboard() {
         duration_minutes: Number(newServiceDuration),
         category_id: Number(newServiceCatId),
       });
-      alert("New service created successfully!");
+      notify("New service created successfully!");
       setShowAddServiceModal(false);
       setNewServiceTitle("");
       setNewServiceDesc("");
       setNewServicePrice("");
       await loadData();
     } catch (err) {
-      alert(err.response?.data?.detail || "Failed to create service.");
+      toast.error(getErrorMessage(err, "Failed to create service."));
     } finally {
       setCreatingService(false);
     }
@@ -299,10 +333,10 @@ export default function ProviderDashboard() {
     setBlockingDate(true);
     try {
       await blockDateApi(blockDate);
-      alert(`Date ${blockDate} has been blocked on your calendar.`);
+      notify(`Date ${blockDate} has been blocked on your calendar.`);
       setBlockDate("");
     } catch (err) {
-      alert(err.response?.data?.detail || "Failed to block date.");
+      toast.error(getErrorMessage(err, "Failed to block date."));
     } finally {
       setBlockingDate(false);
     }
@@ -313,9 +347,9 @@ export default function ProviderDashboard() {
     setSavingProfile(true);
     try {
       await updateProviderProfileApi(profileForm);
-      alert("Provider business profile updated!");
+      notify("Provider business profile updated!");
     } catch (err) {
-      alert(err.response?.data?.detail || "Failed to update profile.");
+      toast.error(getErrorMessage(err, "Failed to update profile."));
     } finally {
       setSavingProfile(false);
     }
@@ -347,7 +381,7 @@ export default function ProviderDashboard() {
       };
 
       await createRentalItem(payload);
-      alert("Rental item listed successfully!");
+      notify("Rental item listed successfully!");
       setShowAddRentalModal(false);
       setRentalForm({
         title: "",
@@ -370,7 +404,7 @@ export default function ProviderDashboard() {
       });
       await loadData();
     } catch (err) {
-      alert(err.response?.data?.detail || "Failed to list rental item.");
+      toast.error(getErrorMessage(err, "Failed to list rental item."));
     } finally {
       setCreatingRentalItem(false);
     }
@@ -381,16 +415,21 @@ export default function ProviderDashboard() {
     try {
       await updateRentalBookingStatus(bookingId, newStatus, notes);
       await loadData();
-      alert(`Rental booking #${bookingId} status updated to ${newStatus}.`);
+      notify(`Rental booking #${bookingId} status updated to ${newStatus}.`);
     } catch (err) {
-      alert(err.response?.data?.detail || "Failed to update rental status.");
+      toast.error(getErrorMessage(err, "Failed to update rental status."));
     } finally {
       setActionLoading(null);
     }
   };
 
   const handleCleanReturnSubmit = async (bookingId) => {
-    if (!window.confirm("Confirm clean return inspection? Full security deposit will be automatically unlocked and refunded to customer.")) return;
+    const ok = await confirm({
+      title: "Confirm clean return?",
+      description: "The full security deposit will be released and refunded to the customer.",
+      confirmLabel: "Confirm & refund deposit",
+    });
+    if (!ok) return;
     setActionLoading(`rental-return-${bookingId}`);
     try {
       await processRentalReturn(bookingId, {
@@ -400,9 +439,9 @@ export default function ProviderDashboard() {
         inspection_notes: "Item returned in pristine condition with all original accessories.",
       });
       await loadData();
-      alert("Return verified! Security deposit refunded to customer.");
+      notify("Return verified! Security deposit refunded to customer.");
     } catch (err) {
-      alert(err.response?.data?.detail || "Failed to process return.");
+      toast.error(getErrorMessage(err, "Failed to process return."));
     } finally {
       setActionLoading(null);
     }
@@ -421,22 +460,28 @@ export default function ProviderDashboard() {
       setDamageDescription("");
       setEstimatedRepairCost("");
       await loadData();
-      alert("Damage claim submitted to admin for escrow arbitration.");
+      notify("Damage claim submitted to admin for escrow arbitration.");
     } catch (err) {
-      alert(err.response?.data?.detail || "Failed to report damage claim.");
+      toast.error(getErrorMessage(err, "Failed to report damage claim."));
     } finally {
       setReportingDamage(false);
     }
   };
 
   const handleDeleteRental = async (itemId) => {
-    if (!window.confirm("Are you sure you want to delete this rental listing?")) return;
+    const ok = await confirm({
+      title: "Delete this listing?",
+      description: "It will be removed from the rentals catalogue. This can't be undone.",
+      confirmLabel: "Delete listing",
+      tone: "danger",
+    });
+    if (!ok) return;
     try {
       await deleteRentalItem(itemId);
       await loadData();
-      alert("Rental listing deleted.");
+      notify("Rental listing deleted.");
     } catch (err) {
-      alert(err.response?.data?.detail || "Failed to delete item.");
+      toast.error(getErrorMessage(err, "Failed to delete item."));
     }
   };
 
@@ -451,144 +496,91 @@ export default function ProviderDashboard() {
   const completedCount = bookings.filter((b) => b.status === "completed").length;
 
   return (
-    <div className="min-h-screen pt-24 pb-16 px-4 max-w-7xl mx-auto space-y-8">
-      {/* ═══ HEADER BANNER WITH INSTANT VS REQUEST MODE TOGGLE ═══ */}
-      <div className="p-8 rounded-3xl bg-slate-900 border border-slate-800 shadow-2xl flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
-        <div>
-          <div className="flex items-center gap-3 flex-wrap">
-            <h1 className="text-2xl font-extrabold text-white">Provider Business Suite</h1>
-            <span className="px-3 py-1 rounded-full text-xs font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 flex items-center gap-1">
-              <FiUserCheck /> Verified Partner
-            </span>
+    <div className="pt-28 sm:pt-32 pb-24 container-page space-y-8">
+      {/* ═══ HEADER ═══ */}
+      <Reveal y={12} className="flex flex-col xl:flex-row xl:items-end justify-between gap-6">
+        <div className="flex items-center gap-4 min-w-0">
+          <Avatar src={user?.profile_image} name={user?.full_name || "Provider"} size="xl" />
+          <div className="min-w-0">
+            <p className="eyebrow mb-2">Provider workspace</p>
+            <h1 className="text-3xl sm:text-4xl font-semibold text-white truncate">{user?.full_name?.split(" ")[0] || "Welcome"}</h1>
+            <p className="text-sm text-ink-400 mt-1 flex items-center gap-2">
+              <BadgeCheck className="w-4 h-4 text-accent-400" aria-hidden="true" />
+              Verified partner · Manage jobs, rentals, availability and earnings
+            </p>
           </div>
-          <p className="text-xs text-slate-400 mt-1">
-            Manage incoming requests, track live jobs, update availability, and view earnings.
-          </p>
         </div>
-
-        {/* Action Controls: Mode Switch & Add Service */}
-        <div className="flex flex-wrap items-center gap-3">
-          {/* Instant vs Request Booking Mode Switch */}
-          <div className="flex items-center gap-3 bg-slate-800/90 border border-slate-700 px-4 py-2 rounded-2xl">
-            <div className="text-left">
-              <div className="text-[10px] uppercase font-bold text-slate-400">Booking Mode</div>
-              <div className="text-xs font-extrabold text-white flex items-center gap-1">
-                {bookingMode === "instant_booking" ? (
-                  <span className="text-blue-400 flex items-center gap-1">
-                    <FiZap /> Instant Auto-Confirm
-                  </span>
-                ) : (
-                  <span className="text-amber-400 flex items-center gap-1">
-                    <FiClock /> Manual Request Mode
-                  </span>
-                )}
-              </div>
-            </div>
-
-            <button
-              type="button"
-              onClick={handleToggleBookingMode}
+        <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+          <div className="surface px-4 py-3 min-w-[260px]">
+            <Switch
+              checked={bookingMode === "instant_booking"}
+              onChange={() => !updatingMode && handleToggleBookingMode()}
               disabled={updatingMode}
-              className={`p-1.5 rounded-xl transition ${
-                bookingMode === "instant_booking"
-                  ? "bg-blue-600 text-white hover:bg-blue-500"
-                  : "bg-amber-600 text-white hover:bg-amber-500"
-              }`}
-              title="Click to toggle Instant vs Request booking mode"
-            >
-              {bookingMode === "instant_booking" ? (
-                <FiToggleRight className="w-6 h-6" />
-              ) : (
-                <FiToggleLeft className="w-6 h-6" />
-              )}
-            </button>
+              label={bookingMode === "instant_booking" ? "Instant booking" : "Request mode"}
+              description={bookingMode === "instant_booking" ? "Bookings confirm automatically" : "You approve each request"}
+            />
           </div>
-
-          <button
-            onClick={() => setShowAddServiceModal(true)}
-            className="px-5 py-2.5 rounded-2xl bg-gradient-to-r from-blue-600 to-indigo-600 text-white font-bold text-xs shadow-lg shadow-blue-500/25 hover:from-blue-500 hover:to-indigo-500 transition"
-          >
-            + Add Service
-          </button>
-
-          <button
-            onClick={() => setShowAddRentalModal(true)}
-            className="px-5 py-2.5 rounded-2xl bg-gradient-to-r from-emerald-600 to-teal-600 text-white font-bold text-xs shadow-lg shadow-emerald-500/25 hover:from-emerald-500 hover:to-teal-500 transition flex items-center gap-1.5"
-          >
-            <span>📦</span>
-            <span>+ List Rental Item</span>
-          </button>
+          <div className="flex gap-2">
+            <Button icon={Plus} onClick={() => setShowAddServiceModal(true)}>
+              Add service
+            </Button>
+            <Button variant="rental" icon={Package} onClick={() => setShowAddRentalModal(true)}>
+              List rental
+            </Button>
+          </div>
         </div>
+      </Reveal>
+
+      {/* ═══ KPI OVERVIEW ═══ */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+        <StatCard label="Service revenue" value={totalEarnings} format={(n) => formatINR(n)} icon={Wallet} tone="emerald" />
+        <StatCard label="Pending requests" value={pendingCount} icon={Inbox} tone="amber" />
+        <StatCard
+          label="Active rentals"
+          value={rentalBookings.filter((b) => ["RENTED", "RETURN_PENDING", "CONFIRMED"].includes(b.status)).length}
+          icon={PackageOpen}
+          tone="teal"
+        />
+        <StatCard
+          label="Jobs & rentals done"
+          value={completedCount + rentalBookings.filter((b) => b.status === "COMPLETED").length}
+          icon={CheckCircle2}
+          tone="indigo"
+        />
       </div>
 
-      {/* ═══ KPI OVERVIEW CARDS ═══ */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-5">
-        <div className="p-6 rounded-3xl bg-slate-900 border border-slate-800 shadow-lg">
-          <span className="text-[10px] text-slate-400 uppercase font-bold block mb-1">Total Revenue</span>
-          <span className="text-2xl font-extrabold text-emerald-400">₹{totalEarnings}</span>
-        </div>
-
-        <div className="p-6 rounded-3xl bg-slate-900 border border-slate-800 shadow-lg">
-          <span className="text-[10px] text-slate-400 uppercase font-bold block mb-1">Pending Service Requests</span>
-          <span className="text-2xl font-extrabold text-amber-400">{pendingCount}</span>
-        </div>
-
-        <div className="p-6 rounded-3xl bg-slate-900 border border-slate-800 shadow-lg">
-          <span className="text-[10px] text-slate-400 uppercase font-bold block mb-1">Active Rentals</span>
-          <span className="text-2xl font-extrabold text-emerald-300">
-            {rentalBookings.filter((b) => ["RENTED", "RETURN_PENDING", "CONFIRMED"].includes(b.status)).length}
-          </span>
-        </div>
-
-        <div className="p-6 rounded-3xl bg-slate-900 border border-slate-800 shadow-lg">
-          <span className="text-[10px] text-slate-400 uppercase font-bold block mb-1">Jobs & Rentals Done</span>
-          <span className="text-2xl font-extrabold text-indigo-300">
-            {completedCount + rentalBookings.filter((b) => b.status === "COMPLETED").length}
-          </span>
-        </div>
-      </div>
-
-      {/* ═══ TABS NAVIGATION ═══ */}
-      <div className="flex items-center gap-2 border-b border-slate-800 pb-4 overflow-x-auto">
-        {[
-          { id: "bookings", label: `Service Requests & Jobs (${pendingCount + inTransitCount})` },
-          { id: "rentals", label: `📦 Rentals Business Suite (${rentalBookings.length} orders)` },
-          { id: "calendar", label: "Calendar & Availability" },
-          { id: "services", label: `My Services (${services.length})` },
-          { id: "earnings", label: `Completed Ledger (${completedCount})` },
-          { id: "reviews", label: `Customer Reviews (${reviews.length})` },
-          { id: "profile", label: "Business Profile" },
-        ].map((tab) => (
-          <button
-            key={tab.id}
-            onClick={() => setActiveTab(tab.id)}
-            className={`px-4 py-2.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all ${
-              activeTab === tab.id
-                ? tab.id === "rentals"
-                  ? "bg-emerald-600 text-white shadow-lg shadow-emerald-500/25"
-                  : "bg-blue-600 text-white shadow-lg shadow-blue-500/25"
-                : "bg-slate-900 border border-slate-800 text-slate-400 hover:text-white"
-            }`}
-          >
-            {tab.label}
-          </button>
-        ))}
-      </div>
+      {/* ═══ TABS ═══ */}
+      <Tabs
+        ariaLabel="Workspace sections"
+        value={activeTab}
+        onChange={setActiveTab}
+        accent={activeTab === "rentals" ? "rental" : "primary"}
+        className="max-w-full"
+        items={[
+          { id: "bookings", label: "Jobs", icon: Inbox, count: pendingCount + inTransitCount },
+          { id: "rentals", label: "Rentals", icon: Package, count: rentalBookings.length },
+          { id: "calendar", label: "Calendar", icon: CalendarDays },
+          { id: "services", label: "Services", icon: Wrench, count: services.length },
+          { id: "earnings", label: "Ledger", icon: Wallet, count: completedCount },
+          { id: "reviews", label: "Reviews", icon: Star, count: reviews.length },
+          { id: "profile", label: "Profile", icon: UserCog },
+        ]}
+      />
 
       {/* ═══ TAB 1: BOOKING REQUESTS & ACTIONS ═══ */}
       {activeTab === "bookings" && (
-        <div className="p-6 rounded-3xl bg-slate-900 border border-slate-800 shadow-2xl space-y-4">
+        <div className="p-6 rounded-2xl bg-surface-900 border border-white/[0.06] shadow-[var(--shadow-card)] space-y-4">
           <div className="flex items-center justify-between">
             <h2 className="text-lg font-bold text-white">Live Booking Management</h2>
-            <span className="text-xs text-slate-400">Real-time status updates enabled</span>
+            <span className="text-xs text-ink-400">Real-time status updates enabled</span>
           </div>
 
           {bookings.length === 0 ? (
-            <div className="py-12 text-center text-xs text-slate-400">No booking requests received yet.</div>
+            <div className="py-12 text-center text-xs text-ink-400">No booking requests received yet.</div>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs text-slate-300">
-                <thead className="uppercase tracking-wider bg-slate-800 text-slate-400 border-b border-slate-700">
+              <table className="w-full text-left text-xs text-ink-300">
+                <thead className="uppercase tracking-wider bg-surface-850 text-ink-400 border-b border-white/[0.08]">
                   <tr>
                     <th className="px-4 py-3">ID</th>
                     <th className="px-4 py-3">Customer</th>
@@ -600,16 +592,15 @@ export default function ProviderDashboard() {
                     <th className="px-4 py-3 text-right">Lifecycle Actions</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-800">
+                <tbody className="divide-y divide-white/[0.06]">
                   {bookings.map((b) => (
-                    <tr key={b.id} className="hover:bg-slate-800/50 transition">
+                    <tr key={b.id} className="hover:bg-white/[0.03] transition">
                       <td className="px-4 py-4 font-bold text-white">#{b.id}</td>
                       <td className="px-4 py-4 font-semibold text-white">
                         <div>{b.customer?.full_name || "Customer"}</div>
-                        <div className="text-[11px] text-slate-400">{b.customer?.phone_number || b.customer?.email}</div>
+                        <div className="text-[11px] text-ink-400">{b.customer?.phone_number || b.customer?.email}</div>
                         {b.address && (
-                          <div className="text-[10px] text-slate-500 mt-0.5 flex items-center gap-1">
-                            <span>📍</span>
+                          <div className="text-[10px] text-ink-500 mt-0.5 flex items-center gap-1">
                             <span className="truncate max-w-[160px]">
                               {b.address.street || b.address.address_line1 || b.address.city || "Customer Address"}
                             </span>
@@ -630,19 +621,19 @@ export default function ProviderDashboard() {
                         {b.attachments && b.attachments.length > 0 ? (
                           <button
                             onClick={() => setPreviewAttachmentsBooking(b)}
-                            className="flex items-center gap-1 text-xs text-blue-400 hover:text-blue-300 font-semibold bg-blue-500/10 px-2.5 py-1 rounded-lg border border-blue-500/20"
+                            className="flex items-center gap-1 text-xs text-primary-400 hover:text-primary-300 font-semibold bg-primary-500/10 px-2.5 py-1 rounded-lg border border-primary-500/20"
                           >
                             <FiImage className="w-3.5 h-3.5" />
                             <span>{b.attachments.length} Photos</span>
                           </button>
                         ) : (
-                          <span className="text-[11px] text-slate-600">No photos</span>
+                          <span className="text-[11px] text-ink-500">No photos</span>
                         )}
                       </td>
 
                       <td className="px-4 py-4">
                         <div>{new Date(b.booking_date).toLocaleDateString()}</div>
-                        <div className="text-[11px] text-slate-500">{b.time_slot}</div>
+                        <div className="text-[11px] text-ink-500">{b.time_slot}</div>
                       </td>
                       <td className="px-4 py-4 font-bold text-emerald-400">₹{b.total_amount}</td>
                       <td className="px-4 py-4">
@@ -653,11 +644,11 @@ export default function ProviderDashboard() {
                               : b.status === "in_progress"
                               ? "bg-purple-500/20 text-purple-300 border-purple-500/30"
                               : b.status === "provider_on_the_way"
-                              ? "bg-indigo-500/20 text-indigo-300 border-indigo-500/30"
+                              ? "bg-primary-500/20 text-primary-300 border-primary-500/30"
                               : b.status === "confirmed"
-                              ? "bg-blue-500/20 text-blue-300 border-blue-500/30"
+                              ? "bg-primary-500/20 text-primary-300 border-primary-500/30"
                               : b.status === "cancelled" || b.status === "rejected"
-                              ? "bg-red-500/20 text-red-300 border-red-500/30"
+                              ? "bg-rose-500/20 text-rose-300 border-rose-500/30"
                               : "bg-amber-500/20 text-amber-300 border-amber-500/30"
                           }`}
                         >
@@ -669,9 +660,9 @@ export default function ProviderDashboard() {
                         <div className="flex items-center justify-end gap-2">
                           <button
                             onClick={() => setChatBooking(b)}
-                            className="px-2.5 py-1 rounded-lg bg-slate-800 text-slate-200 hover:bg-slate-700 text-xs"
+                            className="px-2.5 py-1 rounded-lg bg-surface-850 text-ink-200 hover:bg-surface-750 text-xs"
                           >
-                            💬 Chat
+                            Chat
                           </button>
 
                           {/* REQUESTED or PENDING: Accept / Reject */}
@@ -680,14 +671,14 @@ export default function ProviderDashboard() {
                               <button
                                 onClick={() => handleConfirm(b.id)}
                                 disabled={actionLoading === `confirm-${b.id}`}
-                                className="px-3 py-1 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs transition"
+                                className="px-3 py-1 rounded-lg bg-primary-600 hover:bg-primary-500 text-white font-bold text-xs transition"
                               >
                                 Accept
                               </button>
                               <button
                                 onClick={() => handleReject(b.id)}
                                 disabled={actionLoading === `reject-${b.id}`}
-                                className="px-3 py-1 rounded-lg bg-red-500/20 hover:bg-red-500/30 text-red-300 text-xs border border-red-500/30 transition"
+                                className="px-3 py-1 rounded-lg bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 text-xs border border-rose-500/30 transition"
                               >
                                 Reject
                               </button>
@@ -699,7 +690,7 @@ export default function ProviderDashboard() {
                             <button
                               onClick={() => handleOnTheWay(b.id)}
                               disabled={actionLoading === `ontheway-${b.id}`}
-                              className="px-3 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white font-bold text-xs flex items-center gap-1.5 transition"
+                              className="px-3 py-1 rounded-lg bg-primary-600 hover:bg-primary-500 text-white font-bold text-xs flex items-center gap-1.5 transition"
                             >
                               <FiTruck /> On The Way
                             </button>
@@ -741,14 +732,13 @@ export default function ProviderDashboard() {
       {activeTab === "rentals" && (
         <div className="space-y-8 animate-fade-in">
           {/* Active / Incoming Rental Orders Table */}
-          <div className="p-6 rounded-3xl bg-slate-900 border border-slate-800 shadow-2xl space-y-4">
+          <div className="p-6 rounded-2xl bg-surface-900 border border-white/[0.06] shadow-[var(--shadow-card)] space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
               <div>
                 <h2 className="text-lg font-bold text-white flex items-center gap-2">
-                  <span>📦</span>
                   <span>Rental Orders & Escrow Lifecycle</span>
                 </h2>
-                <p className="text-xs text-slate-400">
+                <p className="text-xs text-ink-400">
                   Manage handover, delivery readiness, return inspections, and security deposit escrow.
                 </p>
               </div>
@@ -758,14 +748,45 @@ export default function ProviderDashboard() {
               </span>
             </div>
 
+            {/* Rental Status Filter Pills */}
+            <div className="flex items-center gap-2 overflow-x-auto pb-2 border-b border-white/[0.06] scrollbar-none">
+              {[
+                { id: "all", label: "All Orders", count: rentalBookings.length },
+                { id: "requests", label: "New Requests", count: rentalBookings.filter((b) => b.status === "REQUESTED").length },
+                {
+                  id: "upcoming",
+                  label: "Upcoming / Ready",
+                  count: rentalBookings.filter((b) =>
+                    ["CONFIRMED", "PAYMENT_COMPLETED", "READY_FOR_PICKUP", "READY_FOR_DELIVERY"].includes(b.status)
+                  ).length,
+                },
+                { id: "active", label: "Active Rentals", count: rentalBookings.filter((b) => b.status === "RENTED" || b.status === "RETURN_PENDING").length },
+                { id: "completed", label: "Completed", count: rentalBookings.filter((b) => ["COMPLETED", "RETURNED", "INSPECTED"].includes(b.status)).length },
+                { id: "cancelled", label: "Cancelled / Disputes", count: rentalBookings.filter((b) => ["CANCELLED", "REJECTED", "DAMAGE_REPORTED"].includes(b.status)).length },
+              ].map((pill) => (
+                <button
+                  key={pill.id}
+                  onClick={() => setRentalStatusFilter(pill.id)}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all flex items-center gap-1.5 ${
+                    rentalStatusFilter === pill.id
+                      ? "bg-emerald-600 text-white shadow-md shadow-emerald-500/20 ring-1 ring-emerald-400"
+                      : "bg-surface-850 text-ink-400 hover:text-white"
+                  }`}
+                >
+                  <span>{pill.label}</span>
+                  <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-black/30 font-bold">{pill.count}</span>
+                </button>
+              ))}
+            </div>
+
             {rentalBookings.length === 0 ? (
-              <div className="py-12 text-center text-xs text-slate-400">
+              <div className="py-12 text-center text-xs text-ink-400">
                 No rental bookings received yet. List physical items below to start renting out equipment!
               </div>
             ) : (
               <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs text-slate-300">
-                  <thead className="uppercase tracking-wider bg-slate-800 text-slate-400 border-b border-slate-700">
+                <table className="w-full text-left text-xs text-ink-300">
+                  <thead className="uppercase tracking-wider bg-surface-850 text-ink-400 border-b border-white/[0.08]">
                     <tr>
                       <th className="px-4 py-3">Order ID</th>
                       <th className="px-4 py-3">Customer</th>
@@ -776,28 +797,39 @@ export default function ProviderDashboard() {
                       <th className="px-4 py-3 text-right">Lifecycle Actions</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-slate-800">
-                    {rentalBookings.map((rb) => (
-                      <tr key={rb.id} className="hover:bg-slate-800/50 transition">
+                  <tbody className="divide-y divide-white/[0.06]">
+                    {rentalBookings
+                      .filter((rb) => {
+                        if (rentalStatusFilter === "all") return true;
+                        if (rentalStatusFilter === "requests") return rb.status === "REQUESTED";
+                        if (rentalStatusFilter === "upcoming")
+                          return ["CONFIRMED", "PAYMENT_COMPLETED", "READY_FOR_PICKUP", "READY_FOR_DELIVERY"].includes(rb.status);
+                        if (rentalStatusFilter === "active") return rb.status === "RENTED" || rb.status === "RETURN_PENDING";
+                        if (rentalStatusFilter === "completed") return ["COMPLETED", "RETURNED", "INSPECTED"].includes(rb.status);
+                        if (rentalStatusFilter === "cancelled") return ["CANCELLED", "REJECTED", "DAMAGE_REPORTED"].includes(rb.status);
+                        return true;
+                      })
+                      .map((rb) => (
+                      <tr key={rb.id} className="hover:bg-white/[0.03] transition">
                         <td className="px-4 py-4 font-bold text-white">#{rb.id}</td>
                         <td className="px-4 py-4">
                           <div className="font-semibold text-white">{rb.customer?.full_name || "Customer"}</div>
-                          <div className="text-[11px] text-slate-400">{rb.customer?.phone_number || rb.customer?.email}</div>
+                          <div className="text-[11px] text-ink-400">{rb.customer?.phone_number || rb.customer?.email}</div>
                           <div className="text-[10px] text-emerald-400/80 mt-0.5">
-                            {rb.fulfillment_type === "DELIVERY" ? "🚚 Delivery" : "📍 Pickup"}
+                            {rb.fulfillment_type === "DELIVERY" ? "Delivery" : "Pickup"}
                           </div>
                         </td>
                         <td className="px-4 py-4">
                           <div className="font-medium text-white">{rb.rental_item?.title}</div>
-                          <div className="text-[11px] text-slate-400">{rb.rental_item?.category?.name}</div>
+                          <div className="text-[11px] text-ink-400">{rb.rental_item?.category?.name}</div>
                         </td>
                         <td className="px-4 py-4">
                           <div>{rb.start_date} → {rb.end_date}</div>
-                          <div className="text-[11px] text-slate-400">{rb.quantity} unit(s)</div>
+                          <div className="text-[11px] text-ink-400">{rb.quantity} unit(s)</div>
                         </td>
                         <td className="px-4 py-4">
                           <div className="font-bold text-emerald-400">₹{rb.total_amount_charged}</div>
-                          <div className="text-[10px] text-slate-400">
+                          <div className="text-[10px] text-ink-400">
                             (incl. ₹{rb.security_deposit_amount} deposit)
                           </div>
                         </td>
@@ -809,9 +841,9 @@ export default function ProviderDashboard() {
                                 : rb.status === "RENTED"
                                 ? "bg-cyan-500/20 text-cyan-300 border-cyan-500/30 animate-pulse"
                                 : rb.status === "RETURN_PENDING"
-                                ? "bg-indigo-500/20 text-indigo-300 border-indigo-500/30"
+                                ? "bg-primary-500/20 text-primary-300 border-primary-500/30"
                                 : rb.status === "READY_FOR_PICKUP" || rb.status === "READY_FOR_DELIVERY"
-                                ? "bg-blue-500/20 text-blue-300 border-blue-500/30"
+                                ? "bg-primary-500/20 text-primary-300 border-primary-500/30"
                                 : rb.status === "CONFIRMED"
                                 ? "bg-teal-500/20 text-teal-300 border-teal-500/30"
                                 : rb.status === "DAMAGE_REPORTED"
@@ -837,7 +869,7 @@ export default function ProviderDashboard() {
                                 <button
                                   onClick={() => handleRentalStatusChange(rb.id, "REJECTED", "Item unavailable for requested dates")}
                                   disabled={actionLoading === `rental-${rb.id}-REJECTED`}
-                                  className="px-2.5 py-1 rounded-lg bg-red-500/20 text-red-300 text-xs border border-red-500/30"
+                                  className="px-2.5 py-1 rounded-lg bg-rose-500/20 text-rose-300 text-xs border border-rose-500/30"
                                 >
                                   Reject
                                 </button>
@@ -854,9 +886,9 @@ export default function ProviderDashboard() {
                                     "Item packed and ready"
                                   )
                                 }
-                                className="px-3 py-1 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs"
+                                className="px-3 py-1 rounded-lg bg-primary-600 hover:bg-primary-500 text-white font-bold text-xs"
                               >
-                                {rb.fulfillment_type === "DELIVERY" ? "🚚 Ready For Delivery" : "📍 Ready For Pickup"}
+                                {rb.fulfillment_type === "DELIVERY" ? "Ready for delivery" : "Ready for pickup"}
                               </button>
                             )}
 
@@ -866,7 +898,7 @@ export default function ProviderDashboard() {
                                 onClick={() => handleRentalStatusChange(rb.id, "RENTED", "Handover completed to customer")}
                                 className="px-3 py-1 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white font-bold text-xs"
                               >
-                                🤝 Confirm Handover (Rented)
+                                Confirm handover
                               </button>
                             )}
 
@@ -878,14 +910,14 @@ export default function ProviderDashboard() {
                                   disabled={actionLoading === `rental-return-${rb.id}`}
                                   className="px-3 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs flex items-center gap-1 shadow"
                                 >
-                                  <span>✓ Clean Return</span>
+                                  <span>Clean return</span>
                                   <span className="text-[10px] font-normal">(Refund Deposit)</span>
                                 </button>
                                 <button
                                   onClick={() => setDamageModalBooking(rb)}
                                   className="px-2.5 py-1 rounded-lg bg-rose-600/20 hover:bg-rose-600/30 text-rose-300 font-semibold text-xs border border-rose-500/30"
                                 >
-                                  ⚠️ Report Damage
+                                  Report damage
                                 </button>
                               </>
                             )}
@@ -900,11 +932,11 @@ export default function ProviderDashboard() {
           </div>
 
           {/* Rental Items Inventory Section */}
-          <div className="p-6 rounded-3xl bg-slate-900 border border-slate-800 shadow-2xl space-y-4">
+          <div className="p-6 rounded-2xl bg-surface-900 border border-white/[0.06] shadow-[var(--shadow-card)] space-y-4">
             <div className="flex items-center justify-between">
               <div>
                 <h2 className="text-lg font-bold text-white">My Rental Inventory ({rentalItems.length})</h2>
-                <p className="text-xs text-slate-400">Physical gear and items currently listed under your host profile.</p>
+                <p className="text-xs text-ink-400">Physical gear and items currently listed under your host profile.</p>
               </div>
 
               <button
@@ -916,37 +948,37 @@ export default function ProviderDashboard() {
             </div>
 
             {rentalItems.length === 0 ? (
-              <div className="py-8 text-center text-xs text-slate-400">
+              <div className="py-8 text-center text-xs text-ink-400">
                 You have not listed any rental items yet. Click "+ Add Item Listing" above to publish your gear!
               </div>
             ) : (
               <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
                 {rentalItems.map((item) => (
-                  <div key={item.id} className="p-5 rounded-3xl bg-slate-800/80 border border-slate-700/60 space-y-3 flex flex-col justify-between">
+                  <div key={item.id} className="p-5 rounded-2xl bg-surface-850 border border-white/[0.08] space-y-3 flex flex-col justify-between">
                     <div>
                       <div className="flex items-center justify-between gap-2 mb-2">
                         <span className="text-[10px] font-bold uppercase text-emerald-400 bg-emerald-500/20 px-2 py-0.5 rounded">
                           {item.category?.name || "Equipment"}
                         </span>
-                        <span className="text-xs font-bold text-slate-300">
+                        <span className="text-xs font-bold text-ink-300">
                           Qty: {item.quantity}
                         </span>
                       </div>
 
                       <h3 className="text-base font-bold text-white mb-1">{item.title}</h3>
-                      <p className="text-xs text-slate-400 line-clamp-2">{item.description}</p>
+                      <p className="text-xs text-ink-400 line-clamp-2">{item.description}</p>
                     </div>
 
-                    <div className="pt-3 border-t border-slate-700 space-y-2">
-                      <div className="flex justify-between text-xs font-extrabold text-white">
+                    <div className="pt-3 border-t border-white/[0.08] space-y-2">
+                      <div className="flex justify-between text-xs font-semibold text-white">
                         <span className="text-emerald-400">₹{item.daily_rate} / day</span>
-                        <span className="text-slate-400">Deposit: ₹{item.security_deposit}</span>
+                        <span className="text-ink-400">Deposit: ₹{item.security_deposit}</span>
                       </div>
 
                       <div className="flex items-center justify-end gap-2 pt-1">
                         <button
                           onClick={() => handleDeleteRental(item.id)}
-                          className="px-3 py-1 rounded-lg bg-red-500/20 hover:bg-red-500/30 text-red-300 text-xs border border-red-500/30 transition"
+                          className="px-3 py-1 rounded-lg bg-rose-500/20 hover:bg-rose-500/30 text-rose-300 text-xs border border-rose-500/30 transition"
                         >
                           Delete
                         </button>
@@ -962,11 +994,11 @@ export default function ProviderDashboard() {
 
       {/* ═══ TAB 2: CALENDAR & BLOCK DATES ═══ */}
       {activeTab === "calendar" && (
-        <div className="p-6 rounded-3xl bg-slate-900 border border-slate-800 max-w-xl space-y-4">
+        <div className="p-6 rounded-2xl bg-surface-900 border border-white/[0.06] max-w-xl space-y-4">
           <h2 className="text-lg font-bold text-white">Block Vacation / Unavailable Date</h2>
           <form onSubmit={handleBlockDateSubmit} className="space-y-4">
             <div>
-              <label className="block text-xs font-bold text-slate-300 uppercase mb-1">
+              <label className="block text-xs font-bold text-ink-300 uppercase mb-1">
                 Select Date to Block
               </label>
               <input
@@ -975,13 +1007,13 @@ export default function ProviderDashboard() {
                 min={new Date().toISOString().split("T")[0]}
                 value={blockDate}
                 onChange={(e) => setBlockDate(e.target.value)}
-                className="w-full px-4 py-3 rounded-xl bg-slate-800 border border-slate-700 text-white text-xs outline-none focus:border-blue-500"
+                className="w-full px-4 py-3 rounded-xl bg-surface-850 border border-white/[0.08] text-white text-xs outline-none focus:border-primary-500"
               />
             </div>
             <button
               type="submit"
               disabled={blockingDate}
-              className="px-6 py-2.5 rounded-xl bg-red-600 text-white font-bold text-xs shadow hover:bg-red-500 transition"
+              className="px-6 py-2.5 rounded-xl bg-rose-600 text-white font-bold text-xs shadow hover:bg-rose-500 transition"
             >
               {blockingDate ? "Blocking..." : "Block Calendar Date"}
             </button>
@@ -993,13 +1025,13 @@ export default function ProviderDashboard() {
       {activeTab === "services" && (
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
           {services.map((s) => (
-            <div key={s.id} className="p-6 rounded-3xl bg-slate-900 border border-slate-800 space-y-2">
-              <span className="text-[10px] font-bold uppercase text-blue-400 bg-blue-500/20 px-2 py-0.5 rounded">
+            <div key={s.id} className="p-6 rounded-2xl bg-surface-900 border border-white/[0.06] space-y-2">
+              <span className="text-[10px] font-bold uppercase text-primary-400 bg-primary-500/20 px-2 py-0.5 rounded">
                 {s.category?.name || "Home Service"}
               </span>
               <h3 className="text-base font-bold text-white">{s.name || s.title}</h3>
-              <p className="text-xs text-slate-400 line-clamp-2">{s.description}</p>
-              <div className="pt-2 flex justify-between text-xs font-extrabold text-white border-t border-slate-800">
+              <p className="text-xs text-ink-400 line-clamp-2">{s.description}</p>
+              <div className="pt-2 flex justify-between text-xs font-semibold text-white border-t border-white/[0.06]">
                 <span className="text-emerald-400">₹{s.base_price || s.price}</span>
                 <span>{s.duration_minutes || 60} mins</span>
               </div>
@@ -1010,11 +1042,11 @@ export default function ProviderDashboard() {
 
       {/* ═══ TAB 4: COMPLETED LEDGER & EARNINGS ═══ */}
       {activeTab === "earnings" && (
-        <div className="p-6 rounded-3xl bg-slate-900 border border-slate-800 space-y-4">
+        <div className="p-6 rounded-2xl bg-surface-900 border border-white/[0.06] space-y-4">
           <h2 className="text-lg font-bold text-white">Completed Service Ledger</h2>
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs text-slate-300">
-              <thead className="uppercase bg-slate-800 text-slate-400">
+            <table className="w-full text-left text-xs text-ink-300">
+              <thead className="uppercase bg-surface-850 text-ink-400">
                 <tr>
                   <th className="px-4 py-3">Booking ID</th>
                   <th className="px-4 py-3">Customer</th>
@@ -1023,7 +1055,7 @@ export default function ProviderDashboard() {
                   <th className="px-4 py-3 text-right">Payout Earned</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-800">
+              <tbody className="divide-y divide-white/[0.06]">
                 {bookings
                   .filter((b) => b.status === "completed")
                   .map((b) => (
@@ -1043,33 +1075,33 @@ export default function ProviderDashboard() {
 
       {/* ═══ TAB 5: REVIEWS & REPLIES ═══ */}
       {activeTab === "reviews" && (
-        <div className="p-6 rounded-3xl bg-slate-900 border border-slate-800 space-y-4">
+        <div className="p-6 rounded-2xl bg-surface-900 border border-white/[0.06] space-y-4">
           <h2 className="text-lg font-bold text-white">Customer Reviews & Ratings</h2>
           {reviews.length === 0 ? (
-            <div className="py-8 text-center text-xs text-slate-400">No customer reviews yet.</div>
+            <div className="py-8 text-center text-xs text-ink-400">No customer reviews yet.</div>
           ) : (
             <div className="space-y-3">
               {reviews.map((rev) => (
-                <div key={rev.id} className="p-4 rounded-2xl bg-slate-800/60 border border-slate-700/60 space-y-2">
+                <div key={rev.id} className="p-4 rounded-2xl bg-surface-850 border border-white/[0.08] space-y-2">
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       <span className="font-bold text-white text-xs">{rev.customer?.full_name || "Customer"}</span>
-                      <span className="text-amber-400 text-xs font-bold">⭐ {rev.rating}/5</span>
+                      <span className="text-amber-400 text-xs font-bold">★ {rev.rating}/5</span>
                     </div>
-                    <span className="text-[11px] text-slate-500">
+                    <span className="text-[11px] text-ink-500">
                       {new Date(rev.created_at).toLocaleDateString()}
                     </span>
                   </div>
-                  <p className="text-xs text-slate-300">{rev.comment}</p>
+                  <p className="text-xs text-ink-300">{rev.comment}</p>
                   {rev.provider_reply ? (
-                    <div className="mt-2 pl-3 border-l-2 border-blue-500 text-[11px] text-blue-300">
+                    <div className="mt-2 pl-3 border-l-2 border-primary-500 text-[11px] text-primary-300">
                       <span className="font-semibold block">Your Reply:</span>
                       {rev.provider_reply}
                     </div>
                   ) : (
                     <button
                       onClick={() => setReplyReview(rev)}
-                      className="text-xs text-blue-400 hover:text-blue-300 font-semibold"
+                      className="text-xs text-primary-400 hover:text-primary-300 font-semibold"
                     >
                       Reply to Review →
                     </button>
@@ -1083,57 +1115,57 @@ export default function ProviderDashboard() {
 
       {/* ═══ TAB 6: BUSINESS PROFILE SETUP ═══ */}
       {activeTab === "profile" && (
-        <div className="p-6 rounded-3xl bg-slate-900 border border-slate-800 max-w-2xl space-y-4">
+        <div className="p-6 rounded-2xl bg-surface-900 border border-white/[0.06] max-w-2xl space-y-4">
           <h2 className="text-lg font-bold text-white">Provider Business Profile</h2>
           <form onSubmit={handleSaveProfile} className="space-y-4 text-xs">
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block font-bold text-slate-300 uppercase mb-1">Full Name</label>
+                <label className="block font-bold text-ink-300 uppercase mb-1">Full Name</label>
                 <input
                   type="text"
                   value={profileForm.full_name}
                   onChange={(e) => setProfileForm({ ...profileForm, full_name: e.target.value })}
-                  className="w-full p-3 rounded-xl bg-slate-800 border border-slate-700 text-white outline-none focus:border-blue-500"
+                  className="w-full p-3 rounded-xl bg-surface-850 border border-white/[0.08] text-white outline-none focus:border-primary-500"
                 />
               </div>
               <div>
-                <label className="block font-bold text-slate-300 uppercase mb-1">Phone Number</label>
+                <label className="block font-bold text-ink-300 uppercase mb-1">Phone Number</label>
                 <input
                   type="text"
                   value={profileForm.phone_number}
                   onChange={(e) => setProfileForm({ ...profileForm, phone_number: e.target.value })}
-                  className="w-full p-3 rounded-xl bg-slate-800 border border-slate-700 text-white outline-none focus:border-blue-500"
+                  className="w-full p-3 rounded-xl bg-surface-850 border border-white/[0.08] text-white outline-none focus:border-primary-500"
                 />
               </div>
             </div>
 
             <div>
-              <label className="block font-bold text-slate-300 uppercase mb-1">Bio / Expertise</label>
+              <label className="block font-bold text-ink-300 uppercase mb-1">Bio / Expertise</label>
               <textarea
                 rows={3}
                 value={profileForm.bio}
                 onChange={(e) => setProfileForm({ ...profileForm, bio: e.target.value })}
-                className="w-full p-3 rounded-xl bg-slate-800 border border-slate-700 text-white outline-none focus:border-blue-500"
+                className="w-full p-3 rounded-xl bg-surface-850 border border-white/[0.08] text-white outline-none focus:border-primary-500"
               />
             </div>
 
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block font-bold text-slate-300 uppercase mb-1">City / Location</label>
+                <label className="block font-bold text-ink-300 uppercase mb-1">City / Location</label>
                 <input
                   type="text"
                   value={profileForm.location}
                   onChange={(e) => setProfileForm({ ...profileForm, location: e.target.value })}
-                  className="w-full p-3 rounded-xl bg-slate-800 border border-slate-700 text-white outline-none focus:border-blue-500"
+                  className="w-full p-3 rounded-xl bg-surface-850 border border-white/[0.08] text-white outline-none focus:border-primary-500"
                 />
               </div>
               <div>
-                <label className="block font-bold text-slate-300 uppercase mb-1">Service Radius (km)</label>
+                <label className="block font-bold text-ink-300 uppercase mb-1">Service Radius (km)</label>
                 <input
                   type="number"
                   value={profileForm.service_radius_km}
                   onChange={(e) => setProfileForm({ ...profileForm, service_radius_km: Number(e.target.value) })}
-                  className="w-full p-3 rounded-xl bg-slate-800 border border-slate-700 text-white outline-none focus:border-blue-500"
+                  className="w-full p-3 rounded-xl bg-surface-850 border border-white/[0.08] text-white outline-none focus:border-primary-500"
                 />
               </div>
             </div>
@@ -1141,7 +1173,7 @@ export default function ProviderDashboard() {
             <button
               type="submit"
               disabled={savingProfile}
-              className="px-6 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs shadow transition"
+              className="px-6 py-2.5 rounded-xl bg-primary-600 hover:bg-primary-500 text-white font-bold text-xs shadow transition"
             >
               {savingProfile ? "Saving..." : "Save Profile Settings"}
             </button>
@@ -1152,17 +1184,18 @@ export default function ProviderDashboard() {
       {/* ═══ MODAL: PREVIEW CUSTOMER ATTACHMENTS ═══ */}
       {previewAttachmentsBooking && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
-          <div className="w-full max-w-xl bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-2xl text-white space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+          <div className="w-full max-w-xl bg-surface-900 border border-white/[0.06] rounded-2xl p-6 shadow-[var(--shadow-card)] text-white space-y-4">
+            <div className="flex items-center justify-between border-b border-white/[0.06] pb-3">
               <h3 className="text-base font-bold flex items-center gap-2">
-                <FiImage className="text-blue-400" />
+                <FiImage className="text-primary-400" />
                 <span>Problem Photos for Booking #{previewAttachmentsBooking.id}</span>
               </h3>
               <button
                 onClick={() => setPreviewAttachmentsBooking(null)}
-                className="w-8 h-8 rounded-full bg-slate-800 flex items-center justify-center text-slate-400 hover:text-white"
+                className="w-8 h-8 rounded-full bg-surface-850 flex items-center justify-center text-ink-400 hover:text-white"
               >
-                ✕
+                <span className="sr-only">Close</span>
+                <FiX aria-hidden="true" />
               </button>
             </div>
 
@@ -1173,14 +1206,14 @@ export default function ProviderDashboard() {
                   href={att.file_url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="group relative rounded-xl overflow-hidden border border-slate-700 aspect-video bg-slate-800 block"
+                  className="group relative rounded-xl overflow-hidden border border-white/[0.08] aspect-video bg-surface-850 block"
                 >
                   <img
                     src={att.file_url}
                     alt={att.file_name}
                     className="w-full h-full object-cover group-hover:scale-105 transition"
                   />
-                  <span className="absolute bottom-0 inset-x-0 bg-slate-950/80 px-2 py-1 text-[10px] text-slate-300 truncate">
+                  <span className="absolute bottom-0 inset-x-0 bg-surface-950 px-2 py-1 text-[10px] text-ink-300 truncate">
                     {att.file_name}
                   </span>
                 </a>
@@ -1193,15 +1226,15 @@ export default function ProviderDashboard() {
       {/* ═══ MODAL: ADD NEW SERVICE ═══ */}
       {showAddServiceModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
-          <div className="w-full max-w-md bg-slate-900 border border-slate-800 rounded-3xl p-6 shadow-2xl">
+          <div className="w-full max-w-md bg-surface-900 border border-white/[0.06] rounded-2xl p-6 shadow-[var(--shadow-card)]">
             <h3 className="text-lg font-bold text-white mb-4">Add New Service Offering</h3>
             <form onSubmit={handleAddServiceSubmit} className="space-y-4 text-xs">
               <div>
-                <label className="block font-bold text-slate-300 uppercase mb-1">Category</label>
+                <label className="block font-bold text-ink-300 uppercase mb-1">Category</label>
                 <select
                   value={newServiceCatId}
                   onChange={(e) => setNewServiceCatId(e.target.value)}
-                  className="w-full p-3 rounded-xl bg-slate-800 border border-slate-700 text-white outline-none"
+                  className="w-full p-3 rounded-xl bg-surface-850 border border-white/[0.08] text-white outline-none"
                 >
                   <option value={1}>Home Cleaning</option>
                   <option value={2}>AC Repair</option>
@@ -1217,65 +1250,65 @@ export default function ProviderDashboard() {
               </div>
 
               <div>
-                <label className="block font-bold text-slate-300 uppercase mb-1">Service Title</label>
+                <label className="block font-bold text-ink-300 uppercase mb-1">Service Title</label>
                 <input
                   type="text"
                   required
                   placeholder="e.g. Deep AC Cleaning & Gas Check"
                   value={newServiceTitle}
                   onChange={(e) => setNewServiceTitle(e.target.value)}
-                  className="w-full p-3 rounded-xl bg-slate-800 border border-slate-700 text-white outline-none focus:border-blue-500"
+                  className="w-full p-3 rounded-xl bg-surface-850 border border-white/[0.08] text-white outline-none focus:border-primary-500"
                 />
               </div>
 
               <div>
-                <label className="block font-bold text-slate-300 uppercase mb-1">Description</label>
+                <label className="block font-bold text-ink-300 uppercase mb-1">Description</label>
                 <textarea
                   rows={2}
                   required
                   placeholder="What is included in this service..."
                   value={newServiceDesc}
                   onChange={(e) => setNewServiceDesc(e.target.value)}
-                  className="w-full p-3 rounded-xl bg-slate-800 border border-slate-700 text-white outline-none focus:border-blue-500"
+                  className="w-full p-3 rounded-xl bg-surface-850 border border-white/[0.08] text-white outline-none focus:border-primary-500"
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block font-bold text-slate-300 uppercase mb-1">Price (₹)</label>
+                  <label className="block font-bold text-ink-300 uppercase mb-1">Price (₹)</label>
                   <input
                     type="number"
                     required
                     placeholder="499"
                     value={newServicePrice}
                     onChange={(e) => setNewServicePrice(e.target.value)}
-                    className="w-full p-3 rounded-xl bg-slate-800 border border-slate-700 text-white outline-none focus:border-blue-500"
+                    className="w-full p-3 rounded-xl bg-surface-850 border border-white/[0.08] text-white outline-none focus:border-primary-500"
                   />
                 </div>
                 <div>
-                  <label className="block font-bold text-slate-300 uppercase mb-1">Duration (Mins)</label>
+                  <label className="block font-bold text-ink-300 uppercase mb-1">Duration (Mins)</label>
                   <input
                     type="number"
                     required
                     value={newServiceDuration}
                     onChange={(e) => setNewServiceDuration(e.target.value)}
-                    className="w-full p-3 rounded-xl bg-slate-800 border border-slate-700 text-white outline-none focus:border-blue-500"
+                    className="w-full p-3 rounded-xl bg-surface-850 border border-white/[0.08] text-white outline-none focus:border-primary-500"
                   />
                 </div>
               </div>
 
-              <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-800">
+              <div className="flex items-center justify-end gap-3 pt-4 border-t border-white/[0.06]">
                 <button
                   type="button"
                   onClick={() => setShowAddServiceModal(false)}
-                  className="px-4 py-2 text-slate-400"
+                  className="px-4 py-2 text-ink-400"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={creatingService}
-                  className="px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-500 text-white font-bold transition"
+                  className="px-5 py-2.5 rounded-xl bg-primary-600 hover:bg-primary-500 text-white font-bold transition"
                 >
                   {creatingService ? "Publishing..." : "Publish Service"}
                 </button>
@@ -1288,31 +1321,31 @@ export default function ProviderDashboard() {
       {/* ═══ MODAL: ADD NEW RENTAL ITEM ═══ */}
       {showAddRentalModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fade-in">
-          <div className="w-full max-w-2xl bg-slate-900 border border-slate-800 rounded-3xl p-6 sm:p-8 shadow-2xl max-h-[90vh] overflow-y-auto space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+          <div className="w-full max-w-2xl bg-surface-900 border border-white/[0.06] rounded-2xl p-6 sm:p-8 shadow-[var(--shadow-card)] max-h-[90vh] overflow-y-auto space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-white/[0.06]">
               <div>
                 <h3 className="text-lg font-bold text-white flex items-center gap-2">
-                  <span>📦</span>
                   <span>List New Physical Item for Rent</span>
                 </h3>
-                <p className="text-xs text-slate-400">Add specifications, daily price, security deposit and fulfillment terms.</p>
+                <p className="text-xs text-ink-400">Add specifications, daily price, security deposit and fulfillment terms.</p>
               </div>
               <button
                 onClick={() => setShowAddRentalModal(false)}
-                className="w-8 h-8 rounded-full bg-slate-800 text-slate-400 hover:text-white flex items-center justify-center text-sm"
+                className="w-8 h-8 rounded-full bg-surface-850 text-ink-400 hover:text-white flex items-center justify-center text-sm"
               >
-                ✕
+                <span className="sr-only">Close</span>
+                <FiX aria-hidden="true" />
               </button>
             </div>
 
             <form onSubmit={handleCreateRentalItemSubmit} className="space-y-4 text-xs">
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="block font-bold text-slate-300 uppercase mb-1">Rental Category</label>
+                  <label className="block font-bold text-ink-300 uppercase mb-1">Rental Category</label>
                   <select
                     value={rentalForm.category_id}
                     onChange={(e) => setRentalForm({ ...rentalForm, category_id: e.target.value })}
-                    className="w-full p-3 rounded-xl bg-slate-800 border border-slate-700 text-white outline-none"
+                    className="w-full p-3 rounded-xl bg-surface-850 border border-white/[0.08] text-white outline-none"
                   >
                     {rentalCategories.map((c) => (
                       <option key={c.id} value={c.id}>
@@ -1323,100 +1356,100 @@ export default function ProviderDashboard() {
                 </div>
 
                 <div>
-                  <label className="block font-bold text-slate-300 uppercase mb-1">Item Title</label>
+                  <label className="block font-bold text-ink-300 uppercase mb-1">Item Title</label>
                   <input
                     type="text"
                     required
                     placeholder="e.g. Sony FX3 Cinema Line Full-Frame Camera"
                     value={rentalForm.title}
                     onChange={(e) => setRentalForm({ ...rentalForm, title: e.target.value })}
-                    className="w-full p-3 rounded-xl bg-slate-800 border border-slate-700 text-white outline-none focus:border-emerald-500"
+                    className="w-full p-3 rounded-xl bg-surface-850 border border-white/[0.08] text-white outline-none focus:border-emerald-500"
                   />
                 </div>
               </div>
 
               <div>
-                <label className="block font-bold text-slate-300 uppercase mb-1">Description & Included Items</label>
+                <label className="block font-bold text-ink-300 uppercase mb-1">Description & Included Items</label>
                 <textarea
                   rows={3}
                   required
                   placeholder="Describe condition, accessories (batteries, charger, case, cables)..."
                   value={rentalForm.description}
                   onChange={(e) => setRentalForm({ ...rentalForm, description: e.target.value })}
-                  className="w-full p-3 rounded-xl bg-slate-800 border border-slate-700 text-white outline-none focus:border-emerald-500"
+                  className="w-full p-3 rounded-xl bg-surface-850 border border-white/[0.08] text-white outline-none focus:border-emerald-500"
                 />
               </div>
 
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                 <div>
-                  <label className="block font-bold text-slate-300 uppercase mb-1">Daily Rate (₹)</label>
+                  <label className="block font-bold text-ink-300 uppercase mb-1">Daily Rate (₹)</label>
                   <input
                     type="number"
                     required
                     placeholder="1200"
                     value={rentalForm.daily_rate}
                     onChange={(e) => setRentalForm({ ...rentalForm, daily_rate: e.target.value })}
-                    className="w-full p-3 rounded-xl bg-slate-800 border border-slate-700 text-white outline-none focus:border-emerald-500"
+                    className="w-full p-3 rounded-xl bg-surface-850 border border-white/[0.08] text-white outline-none focus:border-emerald-500"
                   />
                 </div>
                 <div>
-                  <label className="block font-bold text-slate-300 uppercase mb-1">Deposit (₹)</label>
+                  <label className="block font-bold text-ink-300 uppercase mb-1">Deposit (₹)</label>
                   <input
                     type="number"
                     required
                     placeholder="5000"
                     value={rentalForm.security_deposit}
                     onChange={(e) => setRentalForm({ ...rentalForm, security_deposit: e.target.value })}
-                    className="w-full p-3 rounded-xl bg-slate-800 border border-slate-700 text-white outline-none focus:border-emerald-500"
+                    className="w-full p-3 rounded-xl bg-surface-850 border border-white/[0.08] text-white outline-none focus:border-emerald-500"
                   />
                 </div>
                 <div>
-                  <label className="block font-bold text-slate-300 uppercase mb-1">Quantity Stock</label>
+                  <label className="block font-bold text-ink-300 uppercase mb-1">Quantity Stock</label>
                   <input
                     type="number"
                     required
                     min={1}
                     value={rentalForm.quantity}
                     onChange={(e) => setRentalForm({ ...rentalForm, quantity: e.target.value })}
-                    className="w-full p-3 rounded-xl bg-slate-800 border border-slate-700 text-white outline-none focus:border-emerald-500"
+                    className="w-full p-3 rounded-xl bg-surface-850 border border-white/[0.08] text-white outline-none focus:border-emerald-500"
                   />
                 </div>
                 <div>
-                  <label className="block font-bold text-slate-300 uppercase mb-1">City</label>
+                  <label className="block font-bold text-ink-300 uppercase mb-1">City</label>
                   <input
                     type="text"
                     value={rentalForm.city}
                     onChange={(e) => setRentalForm({ ...rentalForm, city: e.target.value })}
-                    className="w-full p-3 rounded-xl bg-slate-800 border border-slate-700 text-white outline-none focus:border-emerald-500"
+                    className="w-full p-3 rounded-xl bg-surface-850 border border-white/[0.08] text-white outline-none focus:border-emerald-500"
                   />
                 </div>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="block font-bold text-slate-300 uppercase mb-1">Brand (Optional)</label>
+                  <label className="block font-bold text-ink-300 uppercase mb-1">Brand (Optional)</label>
                   <input
                     type="text"
                     placeholder="Sony, Canon, Decathlon, Royal Enfield..."
                     value={rentalForm.brand}
                     onChange={(e) => setRentalForm({ ...rentalForm, brand: e.target.value })}
-                    className="w-full p-3 rounded-xl bg-slate-800 border border-slate-700 text-white outline-none focus:border-emerald-500"
+                    className="w-full p-3 rounded-xl bg-surface-850 border border-white/[0.08] text-white outline-none focus:border-emerald-500"
                   />
                 </div>
                 <div>
-                  <label className="block font-bold text-slate-300 uppercase mb-1">Primary Image URL</label>
+                  <label className="block font-bold text-ink-300 uppercase mb-1">Primary Image URL</label>
                   <input
                     type="url"
                     placeholder="https://images.unsplash.com/photo-..."
                     value={rentalForm.image_url}
                     onChange={(e) => setRentalForm({ ...rentalForm, image_url: e.target.value })}
-                    className="w-full p-3 rounded-xl bg-slate-800 border border-slate-700 text-white outline-none focus:border-emerald-500"
+                    className="w-full p-3 rounded-xl bg-surface-850 border border-white/[0.08] text-white outline-none focus:border-emerald-500"
                   />
                 </div>
               </div>
 
-              <div className="p-4 rounded-2xl bg-slate-800/60 border border-slate-700/60 space-y-3">
-                <span className="font-bold text-slate-300 uppercase block">Fulfillment Options</span>
+              <div className="p-4 rounded-2xl bg-surface-850 border border-white/[0.08] space-y-3">
+                <span className="font-bold text-ink-300 uppercase block">Fulfillment Options</span>
                 <div className="flex flex-wrap items-center gap-6">
                   <label className="flex items-center gap-2 cursor-pointer text-white">
                     <input
@@ -1441,30 +1474,30 @@ export default function ProviderDashboard() {
 
                 {rentalForm.pickup_available && (
                   <div>
-                    <label className="block text-[11px] font-bold text-slate-400 uppercase mb-1">Pickup Address</label>
+                    <label className="block text-[11px] font-bold text-ink-400 uppercase mb-1">Pickup Address</label>
                     <input
                       type="text"
                       placeholder="Shop/Studio address for customer pickup..."
                       value={rentalForm.pickup_address}
                       onChange={(e) => setRentalForm({ ...rentalForm, pickup_address: e.target.value })}
-                      className="w-full p-2.5 rounded-xl bg-slate-800 border border-slate-700 text-white outline-none"
+                      className="w-full p-2.5 rounded-xl bg-surface-850 border border-white/[0.08] text-white outline-none"
                     />
                   </div>
                 )}
               </div>
 
-              <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-800">
+              <div className="flex items-center justify-end gap-3 pt-4 border-t border-white/[0.06]">
                 <button
                   type="button"
                   onClick={() => setShowAddRentalModal(false)}
-                  className="px-4 py-2 text-slate-400"
+                  className="px-4 py-2 text-ink-400"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={creatingRentalItem}
-                  className="px-6 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold transition shadow-lg shadow-emerald-500/20"
+                  className="px-6 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-bold transition "
                 >
                   {creatingRentalItem ? "Listing..." : "Publish Rental Item"}
                 </button>
@@ -1477,46 +1510,46 @@ export default function ProviderDashboard() {
       {/* ═══ MODAL: REPORT DAMAGE CLAIM ═══ */}
       {damageModalBooking && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fade-in">
-          <div className="w-full max-w-lg bg-slate-900 border border-rose-500/40 rounded-3xl p-6 sm:p-8 shadow-2xl space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+          <div className="w-full max-w-lg bg-surface-900 border border-rose-500/40 rounded-2xl p-6 sm:p-8 shadow-[var(--shadow-card)] space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-white/[0.06]">
               <div>
                 <h3 className="text-lg font-bold text-white flex items-center gap-2">
-                  <span className="text-rose-400">⚠️</span>
                   <span>Report Equipment Damage</span>
                 </h3>
-                <p className="text-xs text-slate-400">
+                <p className="text-xs text-ink-400">
                   Claim security deposit deduction for Booking #{damageModalBooking.id}
                 </p>
               </div>
               <button
                 onClick={() => setDamageModalBooking(null)}
-                className="w-8 h-8 rounded-full bg-slate-800 text-slate-400 hover:text-white flex items-center justify-center text-sm"
+                className="w-8 h-8 rounded-full bg-surface-850 text-ink-400 hover:text-white flex items-center justify-center text-sm"
               >
-                ✕
+                <span className="sr-only">Close</span>
+                <FiX aria-hidden="true" />
               </button>
             </div>
 
             <form onSubmit={handleReportDamageSubmit} className="space-y-4 text-xs">
-              <div className="p-3 rounded-2xl bg-slate-800 border border-slate-700 text-slate-300">
+              <div className="p-3 rounded-2xl bg-surface-850 border border-white/[0.08] text-ink-300">
                 <p>
                   Security Deposit Available: <strong className="text-emerald-400">₹{damageModalBooking.security_deposit_amount}</strong>
                 </p>
               </div>
 
               <div>
-                <label className="block font-bold text-slate-300 uppercase mb-1">Damage Description & Inspection Findings</label>
+                <label className="block font-bold text-ink-300 uppercase mb-1">Damage Description & Inspection Findings</label>
                 <textarea
                   rows={3}
                   required
                   placeholder="Explain the damage observed on the returned item (e.g. cracked lens element, broken kickstand, burnt PCB)..."
                   value={damageDescription}
                   onChange={(e) => setDamageDescription(e.target.value)}
-                  className="w-full p-3 rounded-xl bg-slate-800 border border-slate-700 text-white outline-none focus:border-rose-500"
+                  className="w-full p-3 rounded-xl bg-surface-850 border border-white/[0.08] text-white outline-none focus:border-rose-500"
                 />
               </div>
 
               <div>
-                <label className="block font-bold text-slate-300 uppercase mb-1">Estimated Repair / Replacement Cost (₹)</label>
+                <label className="block font-bold text-ink-300 uppercase mb-1">Estimated Repair / Replacement Cost (₹)</label>
                 <input
                   type="number"
                   required
@@ -1524,22 +1557,22 @@ export default function ProviderDashboard() {
                   placeholder={`Max ₹${damageModalBooking.security_deposit_amount}`}
                   value={estimatedRepairCost}
                   onChange={(e) => setEstimatedRepairCost(e.target.value)}
-                  className="w-full p-3 rounded-xl bg-slate-800 border border-slate-700 text-white outline-none focus:border-rose-500"
+                  className="w-full p-3 rounded-xl bg-surface-850 border border-white/[0.08] text-white outline-none focus:border-rose-500"
                 />
               </div>
 
-              <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-800">
+              <div className="flex items-center justify-end gap-3 pt-4 border-t border-white/[0.06]">
                 <button
                   type="button"
                   onClick={() => setDamageModalBooking(null)}
-                  className="px-4 py-2 text-slate-400"
+                  className="px-4 py-2 text-ink-400"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
                   disabled={reportingDamage}
-                  className="px-6 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold transition shadow-lg shadow-rose-500/20"
+                  className="px-6 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold transition "
                 >
                   {reportingDamage ? "Submitting..." : "Submit Claim for Admin Review"}
                 </button>

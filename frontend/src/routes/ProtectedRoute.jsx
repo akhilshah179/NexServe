@@ -8,20 +8,14 @@
 
 import { Navigate, useLocation } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
+import RouteFallback from "./RouteFallback";
 
 export default function ProtectedRoute({ children, allowedRoles }) {
   const { user, loading } = useAuth();
   const location = useLocation();
 
   if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-surface-900 text-white">
-        <div className="flex flex-col items-center gap-3">
-          <div className="w-10 h-10 border-4 border-primary-500 border-t-transparent rounded-full animate-spin" />
-          <p className="text-sm text-gray-400">Verifying NexServe Session...</p>
-        </div>
-      </div>
-    );
+    return <RouteFallback label="Checking your session" />;
   }
 
   if (!user) {

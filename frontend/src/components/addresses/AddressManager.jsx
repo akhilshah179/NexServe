@@ -1,22 +1,52 @@
 import { useState, useEffect } from "react";
+import { motion, AnimatePresence } from "framer-motion";
+import { MapPin, Plus, Pencil, Trash2, Home, Building2, Users, Check } from "lucide-react";
 import { fetchAddressesApi, createAddressApi, updateAddressApi, deleteAddressApi } from "../../api/addressesApi";
+import { Button, Modal, Field, Input, Textarea, Select, Switch, Skeleton, Alert, useToast, cn } from "../ui";
+import { getErrorMessage } from "../../lib/format";
 
-export default function AddressManager({ onSelectAddress, selectedAddressId }) {
+const EMPTY = {
+  label: "Home",
+  full_address: "",
+  city: "Bengaluru",
+  postal_code: "560001",
+  latitude: 12.9716,
+  longitude: 77.5946,
+  is_default: false,
+};
+
+const labelIcon = (label) => {
+  switch (label?.toLowerCase()) {
+    case "home":
+      return Home;
+    case "work":
+      return Building2;
+    case "parents":
+      return Users;
+    default:
+      return MapPin;
+  }
+};
+
+/**
+ * AddressManager — saved addresses with select / add / edit / delete.
+ * `embedded` drops the outer card so it can sit inside the booking wizard.
+ */
+export default function AddressManager({ onSelectAddress, selectedAddressId, embedded = false }) {
+  const { toast, confirm } = useToast();
   const [addresses, setAddresses] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState("");
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingAddress, setEditingAddress] = useState(null);
-  const [formData, setFormData] = useState({
-    label: "Home",
-    full_address: "",
-    city: "Bengaluru",
-    postal_code: "560001",
-    latitude: 12.9716,
-    longitude: 77.5946,
-    is_default: false,
-  });
+  const [formData, setFormData] = useState(EMPTY);
+  const [errors, setErrors] = useState({});
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState("");
+  const [deletingId, setDeletingId] = useState(null);
 
   const loadAddresses = async () => {
+    setLoadError("");
     try {
       const data = await fetchAddressesApi();
       setAddresses(data);
@@ -26,6 +56,7 @@ export default function AddressManager({ onSelectAddress, selectedAddressId }) {
       }
     } catch (e) {
       console.warn("Failed to load addresses", e);
+      setLoadError(getErrorMessage(e, "We couldn't load your saved addresses."));
     } finally {
       setLoading(false);
     }
@@ -33,19 +64,14 @@ export default function AddressManager({ onSelectAddress, selectedAddressId }) {
 
   useEffect(() => {
     loadAddresses();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const handleOpenAdd = () => {
     setEditingAddress(null);
-    setFormData({
-      label: "Home",
-      full_address: "",
-      city: "Bengaluru",
-      postal_code: "560001",
-      latitude: 12.9716,
-      longitude: 77.5946,
-      is_default: addresses.length === 0,
-    });
+    setFormData({ ...EMPTY, is_default: addresses.length === 0 });
+    setErrors({});
+    setSaveError("");
     setIsModalOpen(true);
   };
 
@@ -60,11 +86,25 @@ export default function AddressManager({ onSelectAddress, selectedAddressId }) {
       longitude: addr.longitude || 77.5946,
       is_default: addr.is_default,
     });
+    setErrors({});
+    setSaveError("");
     setIsModalOpen(true);
+  };
+
+  const validate = () => {
+    const e = {};
+    if (formData.full_address.trim().length < 8) e.full_address = "Add house number, street and a landmark.";
+    if (!formData.city.trim()) e.city = "City is required.";
+    if (!/^[0-9A-Za-z -]{4,10}$/.test(formData.postal_code.trim())) e.postal_code = "Enter a valid PIN code.";
+    setErrors(e);
+    return Object.keys(e).length === 0;
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (!validate()) return;
+    setSaving(true);
+    setSaveError("");
     try {
       if (editingAddress) {
         await updateAddressApi(editingAddress.id, formData);
@@ -72,195 +112,206 @@ export default function AddressManager({ onSelectAddress, selectedAddressId }) {
         await createAddressApi(formData);
       }
       setIsModalOpen(false);
+      toast.success(editingAddress ? "Address updated" : "Address saved");
       await loadAddresses();
     } catch (err) {
-      alert(err.response?.data?.detail || "Failed to save address.");
+      setSaveError(getErrorMessage(err, "Failed to save address."));
+    } finally {
+      setSaving(false);
     }
   };
 
-  const handleDelete = async (id) => {
-    if (!confirm("Are you sure you want to delete this address?")) return;
+  const handleDelete = async (addr) => {
+    const ok = await confirm({
+      title: "Delete this address?",
+      description: `${addr.label} · ${addr.full_address}`,
+      confirmLabel: "Delete address",
+      tone: "danger",
+    });
+    if (!ok) return;
+    setDeletingId(addr.id);
     try {
-      await deleteAddressApi(id);
+      await deleteAddressApi(addr.id);
+      toast.success("Address deleted");
       await loadAddresses();
     } catch (e) {
-      console.error(e);
+      toast.error("Couldn't delete address", getErrorMessage(e));
+    } finally {
+      setDeletingId(null);
     }
   };
 
-  return (
-    <div className="bg-surface-800/80 backdrop-blur-xl border border-white/10 rounded-2xl p-6 shadow-xl">
-      <div className="flex items-center justify-between mb-4">
+  const content = (
+    <>
+      <div className="flex items-start justify-between gap-4 mb-5">
         <div>
-          <h3 className="text-lg font-bold text-white flex items-center gap-2">
-            <span>📍</span> Saved Addresses
-          </h3>
-          <p className="text-xs text-gray-400">Manage your delivery and service addresses</p>
+          <h3 className="text-base font-semibold text-white">Saved addresses</h3>
+          <p className="text-[13px] text-ink-400 mt-0.5">Where professionals should arrive and where rentals are delivered.</p>
         </div>
-        <button
-          type="button"
-          onClick={handleOpenAdd}
-          className="px-3.5 py-2 rounded-xl bg-primary-500/20 text-primary-300 border border-primary-500/30 hover:bg-primary-500/30 text-xs font-semibold transition-all flex items-center gap-1.5"
-        >
-          <span>➕</span> Add New Address
-        </button>
+        <Button size="sm" variant="secondary" icon={Plus} onClick={handleOpenAdd}>
+          Add
+        </Button>
       </div>
 
       {loading ? (
-        <div className="py-6 text-center text-xs text-gray-400 animate-pulse">Loading addresses...</div>
+        <div className="grid sm:grid-cols-2 gap-3">
+          <Skeleton className="h-[92px] rounded-2xl" />
+          <Skeleton className="h-[92px] rounded-2xl" />
+        </div>
+      ) : loadError ? (
+        <Alert
+          tone="error"
+          action={
+            <Button size="xs" variant="secondary" onClick={() => { setLoading(true); loadAddresses(); }}>
+              Retry
+            </Button>
+          }
+        >
+          {loadError}
+        </Alert>
       ) : addresses.length === 0 ? (
-        <div className="p-6 rounded-xl border border-dashed border-white/10 text-center text-xs text-gray-400">
-          No addresses saved yet. Click &quot;Add New Address&quot; to get started.
-        </div>
+        <button
+          type="button"
+          onClick={handleOpenAdd}
+          className="w-full p-6 rounded-2xl border border-dashed border-white/10 hover:border-primary-400/40 hover:bg-primary-500/[0.03] text-center transition-colors"
+        >
+          <MapPin className="w-5 h-5 mx-auto text-ink-400" aria-hidden="true" />
+          <p className="mt-2 text-sm font-medium text-white">Add your first address</p>
+          <p className="text-[13px] text-ink-400 mt-0.5">You'll only need to do this once.</p>
+        </button>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          {addresses.map((addr) => {
-            const isSelected = selectedAddressId === addr.id;
-            return (
-              <div
-                key={addr.id}
-                onClick={() => onSelectAddress && onSelectAddress(addr)}
-                className={`p-4 rounded-xl border transition-all cursor-pointer relative ${
-                  isSelected
-                    ? "bg-primary-500/15 border-primary-500/50 shadow-lg shadow-primary-500/10"
-                    : "bg-surface-700/40 border-white/10 hover:border-white/20"
-                }`}
-              >
-                <div className="flex items-center justify-between mb-2">
-                  <div className="flex items-center gap-2">
-                    <span className="px-2 py-0.5 rounded-md bg-surface-600 text-gray-200 text-[10px] font-bold uppercase tracking-wider">
-                      {addr.label}
-                    </span>
-                    {addr.is_default && (
-                      <span className="px-2 py-0.5 rounded-md bg-accent-500/20 text-accent-300 text-[10px] font-bold">
-                        Default
+        <div role={onSelectAddress ? "radiogroup" : undefined} aria-label="Saved addresses" className="grid sm:grid-cols-2 gap-3">
+          <AnimatePresence initial={false}>
+            {addresses.map((addr) => {
+              const isSelected = selectedAddressId === addr.id;
+              const Icon = labelIcon(addr.label);
+              return (
+                <motion.div
+                  key={addr.id}
+                  layout
+                  initial={{ opacity: 0, scale: 0.97 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.97 }}
+                  className={cn(
+                    "relative rounded-2xl border transition-colors",
+                    isSelected ? "bg-primary-500/[0.07] border-primary-400/50" : "bg-white/[0.02] border-white/[0.07] hover:border-white/15"
+                  )}
+                >
+                  <button
+                    type="button"
+                    role={onSelectAddress ? "radio" : undefined}
+                    aria-checked={onSelectAddress ? isSelected : undefined}
+                    onClick={() => onSelectAddress && onSelectAddress(addr)}
+                    className={cn("w-full text-left p-4 pr-24 rounded-2xl", !onSelectAddress && "cursor-default")}
+                  >
+                    <span className="flex items-center gap-2">
+                      <span
+                        className={cn(
+                          "w-7 h-7 rounded-lg flex items-center justify-center",
+                          isSelected ? "bg-primary-500 text-white" : "bg-white/[0.06] text-ink-300"
+                        )}
+                      >
+                        {isSelected ? <Check className="w-3.5 h-3.5" strokeWidth={3} /> : <Icon className="w-3.5 h-3.5" />}
                       </span>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-1">
+                      <span className="text-sm font-semibold text-white">{addr.label}</span>
+                      {addr.is_default && (
+                        <span className="h-5 px-1.5 rounded-md bg-emerald-500/10 text-emerald-300 text-[11px] font-medium inline-flex items-center">
+                          Default
+                        </span>
+                      )}
+                    </span>
+                    <span className="block mt-2 text-[13px] text-ink-200 line-clamp-2">{addr.full_address}</span>
+                    <span className="block mt-0.5 text-xs text-ink-400">
+                      {addr.city} · {addr.postal_code}
+                    </span>
+                  </button>
+                  <div className="absolute top-3 right-3 flex items-center gap-0.5">
                     <button
                       type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleOpenEdit(addr);
-                      }}
-                      className="p-1 text-gray-400 hover:text-white text-xs"
-                      title="Edit"
+                      onClick={() => handleOpenEdit(addr)}
+                      aria-label={`Edit ${addr.label} address`}
+                      className="w-8 h-8 rounded-lg flex items-center justify-center text-ink-400 hover:text-white hover:bg-white/[0.06] transition-colors"
                     >
-                      ✏️
+                      <Pencil className="w-3.5 h-3.5" />
                     </button>
                     <button
                       type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        handleDelete(addr.id);
-                      }}
-                      className="p-1 text-gray-400 hover:text-error-400 text-xs"
-                      title="Delete"
+                      onClick={() => handleDelete(addr)}
+                      disabled={deletingId === addr.id}
+                      aria-label={`Delete ${addr.label} address`}
+                      className="w-8 h-8 rounded-lg flex items-center justify-center text-ink-400 hover:text-rose-300 hover:bg-rose-500/10 transition-colors disabled:opacity-40"
                     >
-                      🗑️
+                      <Trash2 className="w-3.5 h-3.5" />
                     </button>
                   </div>
-                </div>
-                <p className="text-xs text-gray-200 font-medium line-clamp-2">{addr.full_address}</p>
-                <p className="text-[11px] text-gray-400 mt-1">
-                  {addr.city}, {addr.postal_code}
-                </p>
-              </div>
-            );
-          })}
+                </motion.div>
+              );
+            })}
+          </AnimatePresence>
         </div>
       )}
 
-      {/* Address Form Modal */}
-      {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm animate-fade-in">
-          <div className="w-full max-w-md bg-surface-800 border border-white/10 rounded-2xl p-6 shadow-2xl">
-            <h3 className="text-lg font-bold text-white mb-4">
-              {editingAddress ? "Edit Address" : "Add New Address"}
-            </h3>
-            <form onSubmit={handleSubmit} className="space-y-4">
-              <div>
-                <label className="block text-xs font-semibold text-gray-300 mb-1">Address Label</label>
-                <select
-                  value={formData.label}
-                  onChange={(e) => setFormData({ ...formData, label: e.target.value })}
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-surface-700 border border-white/10 text-white text-sm focus:border-primary-500 outline-none"
-                >
-                  <option value="Home">Home</option>
-                  <option value="Work">Work</option>
-                  <option value="Parents">Parents</option>
-                  <option value="Other">Other</option>
-                </select>
-              </div>
-
-              <div>
-                <label className="block text-xs font-semibold text-gray-300 mb-1">Full Street Address</label>
-                <textarea
-                  required
-                  rows={2}
-                  value={formData.full_address}
-                  onChange={(e) => setFormData({ ...formData, full_address: e.target.value })}
-                  placeholder="Flat/House No, Building, Street, Landmark"
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-surface-700 border border-white/10 text-white text-sm focus:border-primary-500 outline-none"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-semibold text-gray-300 mb-1">City</label>
-                  <input
-                    type="text"
-                    required
-                    value={formData.city}
-                    onChange={(e) => setFormData({ ...formData, city: e.target.value })}
-                    className="w-full px-3.5 py-2.5 rounded-xl bg-surface-700 border border-white/10 text-white text-sm focus:border-primary-500 outline-none"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-gray-300 mb-1">Postal Code</label>
-                  <input
-                    type="text"
-                    required
-                    value={formData.postal_code}
-                    onChange={(e) => setFormData({ ...formData, postal_code: e.target.value })}
-                    className="w-full px-3.5 py-2.5 rounded-xl bg-surface-700 border border-white/10 text-white text-sm focus:border-primary-500 outline-none"
-                  />
-                </div>
-              </div>
-
-              <div className="flex items-center gap-2 pt-2">
-                <input
-                  type="checkbox"
-                  id="is_default"
-                  checked={formData.is_default}
-                  onChange={(e) => setFormData({ ...formData, is_default: e.target.checked })}
-                  className="rounded border-white/20 bg-surface-700 text-primary-500 focus:ring-primary-500"
-                />
-                <label htmlFor="is_default" className="text-xs text-gray-300 cursor-pointer">
-                  Set as default address
-                </label>
-              </div>
-
-              <div className="flex items-center justify-end gap-3 pt-4 border-t border-white/10">
-                <button
-                  type="button"
-                  onClick={() => setIsModalOpen(false)}
-                  className="px-4 py-2 text-xs font-semibold text-gray-400 hover:text-white"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="px-5 py-2.5 text-xs font-semibold text-white bg-gradient-to-r from-primary-600 to-primary-500 rounded-xl hover:from-primary-500 hover:to-primary-400 shadow-md shadow-primary-500/20"
-                >
-                  Save Address
-                </button>
-              </div>
-            </form>
+      <Modal
+        open={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        size="md"
+        icon={MapPin}
+        title={editingAddress ? "Edit address" : "Add a new address"}
+        footer={
+          <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2">
+            <Button variant="secondary" onClick={() => setIsModalOpen(false)}>
+              Cancel
+            </Button>
+            <Button type="submit" form="address-form" loading={saving} loadingText="Saving">
+              Save address
+            </Button>
           </div>
-        </div>
-      )}
-    </div>
+        }
+      >
+        <form id="address-form" onSubmit={handleSubmit} noValidate className="space-y-4">
+          <Field label="Label">
+            <Select value={formData.label} onChange={(e) => setFormData({ ...formData, label: e.target.value })}>
+              <option value="Home">Home</option>
+              <option value="Work">Work</option>
+              <option value="Parents">Parents</option>
+              <option value="Other">Other</option>
+            </Select>
+          </Field>
+          <Field label="Full address" required error={errors.full_address}>
+            <Textarea
+              rows={2}
+              value={formData.full_address}
+              onChange={(e) => setFormData({ ...formData, full_address: e.target.value })}
+              placeholder="Flat / house no, building, street, landmark"
+            />
+          </Field>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="City" required error={errors.city}>
+              <Input value={formData.city} onChange={(e) => setFormData({ ...formData, city: e.target.value })} />
+            </Field>
+            <Field label="PIN code" required error={errors.postal_code}>
+              <Input
+                inputMode="numeric"
+                maxLength={10}
+                value={formData.postal_code}
+                onChange={(e) => setFormData({ ...formData, postal_code: e.target.value })}
+              />
+            </Field>
+          </div>
+          <div className="surface-inset p-3.5">
+            <Switch
+              checked={formData.is_default}
+              onChange={(v) => setFormData({ ...formData, is_default: v })}
+              label="Set as default address"
+              description="Used automatically for new bookings."
+            />
+          </div>
+          {saveError && <Alert tone="error">{saveError}</Alert>}
+        </form>
+      </Modal>
+    </>
   );
+
+  if (embedded) return <div>{content}</div>;
+  return <div className="surface p-5 sm:p-6">{content}</div>;
 }

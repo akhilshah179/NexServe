@@ -1,19 +1,37 @@
 /**
  * Services.jsx — Categorized Marketplace Discovery Page.
- *
- * Features:
- * - Dynamic category fetching from FastAPI PostgreSQL backend
- * - Services organized into dedicated Category Sections (Home Cleaning, AC Repair, Salon, etc.)
- * - 3–4 popular services per category section with "View All" category links
- * - Category filter pills & real-time search
- * - Service Details Modal with full features, pricing & duration
- * - Direct integration with BookingWizardModal for instant slot booking
  */
 
-import { useState, useEffect, useMemo } from "react";
-import { useSearchParams, Link, useNavigate } from "react-router-dom";
+import { useState, useEffect, useMemo, useCallback } from "react";
+import { useSearchParams, useNavigate } from "react-router-dom";
+import { motion, AnimatePresence } from "framer-motion";
+import { SlidersHorizontal, Clock, ShieldCheck, ArrowRight, Users, X, SearchX, LayoutGrid, CreditCard, UserCheck } from "lucide-react";
 import { getCategories, getServices } from "../api/servicesApi";
 import BookingWizardModal from "../components/booking/BookingWizardModal";
+import ServiceCard from "../components/cards/ServiceCard";
+import {
+  PageHeader,
+  SearchBar,
+  FilterChips,
+  Select,
+  Button,
+  ButtonLink,
+  Drawer,
+  Modal,
+  Field,
+  Rating,
+  Avatar,
+  EmptyState,
+  ErrorState,
+  SkeletonGrid,
+  Skeleton,
+  Stagger,
+  StaggerItem,
+  Reveal,
+  cn,
+} from "../components/ui";
+import { serviceVisual } from "../lib/visuals";
+import { formatINR, formatDuration } from "../lib/format";
 
 export default function Services() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -23,13 +41,15 @@ export default function Services() {
   const [categories, setCategories] = useState([]);
   const [services, setServices] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
+  const [filtersOpen, setFiltersOpen] = useState(false);
 
   // Filters & Search
   const [selectedCategory, setSelectedCategory] = useState(initialCategory);
   const [searchQuery, setSearchQuery] = useState(initialSearch);
-  const [priceFilter, setPriceFilter] = useState("all"); // "all" | "under500" | "500-1000" | "above1000"
-  const [ratingFilter, setRatingFilter] = useState(0); // 0 | 4.0 | 4.5
-  const [sortBy, setSortBy] = useState("rating"); // "rating" | "price-asc" | "price-desc" | "popularity"
+  const [priceFilter, setPriceFilter] = useState("all");
+  const [ratingFilter, setRatingFilter] = useState(0);
+  const [sortBy, setSortBy] = useState("rating");
 
   // Active Modals
   const [bookingService, setBookingService] = useState(null);
@@ -37,24 +57,24 @@ export default function Services() {
 
   const navigate = useNavigate();
 
-  useEffect(() => {
-    async function loadData() {
-      try {
-        setLoading(true);
-        const [catData, servData] = await Promise.all([
-          getCategories({ includeServices: true }),
-          getServices(),
-        ]);
-        setCategories(catData || []);
-        setServices(servData || []);
-      } catch (err) {
-        console.warn("Failed to load services data:", err);
-      } finally {
-        setLoading(false);
-      }
+  const loadData = useCallback(async () => {
+    try {
+      setLoading(true);
+      setLoadError(false);
+      const [catData, servData] = await Promise.all([getCategories({ includeServices: true }), getServices()]);
+      setCategories(catData || []);
+      setServices(servData || []);
+    } catch (err) {
+      console.warn("Failed to load services data:", err);
+      setLoadError(true);
+    } finally {
+      setLoading(false);
     }
-    loadData();
   }, []);
+
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
 
   // Sync state with URL params
   useEffect(() => {
@@ -79,21 +99,18 @@ export default function Services() {
   // Group services by category
   const categorizedData = useMemo(() => {
     return categories.map((cat) => {
-      // Find all services matching this category
       let catServices = services.filter((s) => s.category_id === cat.id);
 
-      // Apply search filter if present
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase();
         catServices = catServices.filter(
           (s) =>
-            s.title.toLowerCase().includes(q) ||
-            s.description.toLowerCase().includes(q) ||
-            cat.name.toLowerCase().includes(q)
+            s.title?.toLowerCase().includes(q) ||
+            s.description?.toLowerCase().includes(q) ||
+            cat.name?.toLowerCase().includes(q)
         );
       }
 
-      // Apply price filter
       if (priceFilter === "under500") {
         catServices = catServices.filter((s) => s.price < 500);
       } else if (priceFilter === "500-1000") {
@@ -102,12 +119,10 @@ export default function Services() {
         catServices = catServices.filter((s) => s.price > 1000);
       }
 
-      // Apply rating filter
       if (ratingFilter > 0) {
         catServices = catServices.filter((s) => (s.rating || 4.8) >= ratingFilter);
       }
 
-      // Apply sorting
       catServices.sort((a, b) => {
         if (sortBy === "rating") return (b.rating || 4.8) - (a.rating || 4.8);
         if (sortBy === "price-asc") return a.price - b.price;
@@ -124,7 +139,6 @@ export default function Services() {
     });
   }, [categories, services, searchQuery, priceFilter, ratingFilter, sortBy]);
 
-  // If a single category is selected, focus on it
   const isSingleCategoryView = selectedCategory !== "all";
   const activeCategoryObj = isSingleCategoryView
     ? categorizedData.find((c) => String(c.id) === String(selectedCategory))
@@ -135,395 +149,261 @@ export default function Services() {
     0
   );
 
+  const updateSearch = (value) => {
+    setSearchQuery(value);
+    const params = {};
+    if (value) params.search = value;
+    if (selectedCategory !== "all") params.category = selectedCategory;
+    setSearchParams(params, { replace: true });
+  };
+
+  const clearAll = () => {
+    setSearchQuery("");
+    setSelectedCategory("all");
+    setPriceFilter("all");
+    setRatingFilter(0);
+    setSearchParams({});
+  };
+
+  const activeFilterCount = (priceFilter !== "all" ? 1 : 0) + (ratingFilter > 0 ? 1 : 0);
+
+  const filterControls = (
+    <>
+      <Field label="Price">
+        <Select value={priceFilter} onChange={(e) => setPriceFilter(e.target.value)} aria-label="Filter by price">
+          <option value="all">Any price</option>
+          <option value="under500">Under ₹500</option>
+          <option value="500-1000">₹500 – ₹1,000</option>
+          <option value="above1000">Above ₹1,000</option>
+        </Select>
+      </Field>
+      <Field label="Rating">
+        <Select value={ratingFilter} onChange={(e) => setRatingFilter(Number(e.target.value))} aria-label="Filter by rating">
+          <option value={0}>Any rating</option>
+          <option value={4.5}>4.5 and above</option>
+          <option value={4.0}>4.0 and above</option>
+        </Select>
+      </Field>
+      <Field label="Sort by">
+        <Select value={sortBy} onChange={(e) => setSortBy(e.target.value)} aria-label="Sort services">
+          <option value="rating">Top rated</option>
+          <option value="price-asc">Price: low to high</option>
+          <option value="price-desc">Price: high to low</option>
+          <option value="popularity">Most popular</option>
+        </Select>
+      </Field>
+    </>
+  );
+
   return (
-    <div className="min-h-screen pt-24 pb-20 px-4 sm:px-6 lg:px-8 max-w-7xl mx-auto">
-      {/* ═══ HEADER BANNER ═══ */}
-      <div className="text-center mb-8 animate-slide-up">
-        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-primary-500/15 text-primary-400 border border-primary-500/25 mb-3">
-          ⚡ 100% Background-Verified Experts • Upfront Fixed Pricing
-        </span>
-        <h1 className="text-3xl sm:text-5xl font-extrabold text-white tracking-tight mb-3">
-          Explore Services by Category
-        </h1>
-        <p className="text-sm sm:text-base text-gray-400 max-w-2xl mx-auto leading-relaxed">
-          Select from home cleaning, AC repair, beauty, plumbing, electrical, car services, and more.
-          Instant booking with verified professionals.
-        </p>
-      </div>
-
-      {/* ═══ SEARCH & CATEGORY PILLS BAR ═══ */}
-      <div className="mb-8 space-y-4">
-        {/* Search Bar */}
-        <div className="relative max-w-3xl mx-auto">
-          <input
-            type="text"
-            placeholder="Search service e.g. 'Deep Cleaning', 'AC Repair', 'Haircut', 'Sofa'..."
+    <div className="pb-24">
+      <PageHeader
+        eyebrow="Services"
+        title="Find the right pro for any job"
+        subtitle="Upfront prices, verified professionals and live availability across every category."
+      >
+        <Reveal delay={0.1} className="mt-8 max-w-2xl">
+          <SearchBar
             value={searchQuery}
-            onChange={(e) => {
-              setSearchQuery(e.target.value);
-              setSearchParams({
-                search: e.target.value,
-                ...(selectedCategory !== "all" ? { category: selectedCategory } : {}),
-              });
-            }}
-            className="w-full pl-12 pr-12 py-3.5 rounded-2xl bg-surface-900 border border-white/10 text-sm text-white placeholder-gray-400 outline-none focus:border-primary-500/50 shadow-xl transition-all"
+            onChange={updateSearch}
+            size="lg"
+            placeholder="Search “deep cleaning”, “AC repair”, “haircut”…"
+            ariaLabel="Search services"
           />
-          <span className="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 text-lg">🔍</span>
-          {searchQuery && (
-            <button
-              onClick={() => {
-                setSearchQuery("");
-                if (selectedCategory === "all") {
-                  setSearchParams({});
-                } else {
-                  setSearchParams({ category: selectedCategory });
-                }
-              }}
-              className="absolute right-4 top-1/2 -translate-y-1/2 w-6 h-6 rounded-full bg-surface-700 text-xs text-gray-300 hover:text-white flex items-center justify-center transition-colors"
-            >
-              ✕
-            </button>
-          )}
-        </div>
+        </Reveal>
+      </PageHeader>
 
-        {/* Category Pills Navigation */}
-        <div className="flex items-center gap-2 overflow-x-auto pb-2 scrollbar-none">
-          <button
-            onClick={() => handleCategorySelect("all")}
-            className={`px-4 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition-all flex items-center gap-1.5 ${
-              selectedCategory === "all"
-                ? "bg-primary-600 text-white shadow-lg shadow-primary-500/25 ring-1 ring-primary-400"
-                : "bg-surface-850 border border-white/10 text-gray-300 hover:text-white hover:bg-surface-800"
-            }`}
+      {/* Sticky filter bar */}
+      <div className="sticky top-16 z-30 bg-surface-950/85 backdrop-blur-xl border-y border-white/[0.06]">
+        <div className="container-page py-3 flex items-center gap-3">
+          <FilterChips
+            ariaLabel="Category"
+            className="flex-1 min-w-0"
+            value={selectedCategory}
+            onChange={(id) => handleCategorySelect(String(id))}
+            items={[
+              { id: "all", label: "All", icon: LayoutGrid },
+              ...categories.map((c) => ({ id: String(c.id), label: c.name, icon: serviceVisual(c).icon })),
+            ]}
+          />
+          <div className="hidden lg:flex items-center gap-2 shrink-0">
+            <Select className="!h-9 !min-h-9 !py-0 !text-[13px] w-[140px]" value={priceFilter} onChange={(e) => setPriceFilter(e.target.value)} aria-label="Filter by price">
+              <option value="all">Any price</option>
+              <option value="under500">Under ₹500</option>
+              <option value="500-1000">₹500 – ₹1,000</option>
+              <option value="above1000">Above ₹1,000</option>
+            </Select>
+            <Select className="!h-9 !min-h-9 !py-0 !text-[13px] w-[136px]" value={ratingFilter} onChange={(e) => setRatingFilter(Number(e.target.value))} aria-label="Filter by rating">
+              <option value={0}>Any rating</option>
+              <option value={4.5}>4.5+ rating</option>
+              <option value={4.0}>4.0+ rating</option>
+            </Select>
+            <Select className="!h-9 !min-h-9 !py-0 !text-[13px] w-[164px]" value={sortBy} onChange={(e) => setSortBy(e.target.value)} aria-label="Sort services">
+              <option value="rating">Sort: Top rated</option>
+              <option value="price-asc">Sort: Price low–high</option>
+              <option value="price-desc">Sort: Price high–low</option>
+              <option value="popularity">Sort: Most popular</option>
+            </Select>
+          </div>
+          <Button
+            variant="secondary"
+            size="sm"
+            icon={SlidersHorizontal}
+            className="lg:hidden shrink-0"
+            onClick={() => setFiltersOpen(true)}
+            aria-label="Open filters"
           >
-            <span>🌟</span>
-            <span>All Categories</span>
-          </button>
-
-          {categories.map((cat) => (
-            <button
-              key={cat.id}
-              onClick={() => handleCategorySelect(String(cat.id))}
-              className={`px-4 py-2 rounded-xl text-xs font-bold whitespace-nowrap transition-all flex items-center gap-2 ${
-                String(selectedCategory) === String(cat.id)
-                  ? "bg-primary-600 text-white shadow-lg shadow-primary-500/25 ring-1 ring-primary-400"
-                  : "bg-surface-850 border border-white/10 text-gray-300 hover:text-white hover:bg-surface-800"
-              }`}
-            >
-              <span>{cat.icon_url || "✨"}</span>
-              <span>{cat.name}</span>
-            </button>
-          ))}
+            <span className="hidden sm:inline">Filters</span>
+            {activeFilterCount > 0 && (
+              <span className="w-5 h-5 rounded-full bg-primary-500 text-white text-[11px] flex items-center justify-center">{activeFilterCount}</span>
+            )}
+          </Button>
         </div>
       </div>
 
-      {/* ═══ FILTER & SORT TOOLBAR ═══ */}
-      <div className="p-4 rounded-2xl bg-surface-850/80 border border-white/10 flex flex-wrap items-center justify-between gap-4 mb-8 text-xs backdrop-blur-md shadow-lg">
-        <div className="flex flex-wrap items-center gap-4">
-          {/* Active View / Breadcrumb Badge */}
-          <div className="flex items-center gap-2">
-            <span className="text-gray-400 font-medium">Viewing:</span>
-            <span className="px-2.5 py-1 rounded-lg bg-surface-800 text-primary-300 font-bold border border-white/10">
-              {isSingleCategoryView
-                ? activeCategoryObj?.name || "Selected Category"
-                : "All Category Sections"}
-            </span>
-            {isSingleCategoryView && (
-              <button
-                onClick={() => handleCategorySelect("all")}
-                className="text-primary-400 hover:underline text-[11px]"
-              >
-                (Show All)
+      <div className="container-page pt-8">
+        {/* Result summary */}
+        {!loading && !loadError && (
+          <div className="flex flex-wrap items-center gap-2 mb-8 text-sm" aria-live="polite">
+            <p className="text-ink-300">
+              <span className="text-white font-semibold tabular">{totalMatchingServices}</span>{" "}
+              {totalMatchingServices === 1 ? "service" : "services"}
+              {isSingleCategoryView && activeCategoryObj ? ` in ${activeCategoryObj.name}` : ""}
+              {searchQuery ? ` matching “${searchQuery}”` : ""}
+            </p>
+            {(searchQuery || isSingleCategoryView || activeFilterCount > 0) && (
+              <button type="button" onClick={clearAll} className="inline-flex items-center gap-1 h-7 px-2.5 rounded-lg text-[13px] text-ink-300 hover:text-white bg-white/[0.04] hover:bg-white/[0.08] transition-colors">
+                <X className="w-3.5 h-3.5" aria-hidden="true" />
+                Clear filters
               </button>
             )}
           </div>
+        )}
 
-          {/* Price Filter */}
-          <div className="flex items-center gap-2">
-            <span className="text-gray-400 font-semibold">Price:</span>
-            <select
-              value={priceFilter}
-              onChange={(e) => setPriceFilter(e.target.value)}
-              className="bg-surface-800 border border-white/10 text-white rounded-lg px-2.5 py-1.5 outline-none cursor-pointer"
-            >
-              <option value="all">All Prices</option>
-              <option value="under500">Under ₹500</option>
-              <option value="500-1000">₹500 – ₹1000</option>
-              <option value="above1000">Above ₹1000</option>
-            </select>
-          </div>
-
-          {/* Rating Filter */}
-          <div className="flex items-center gap-2">
-            <span className="text-gray-400 font-semibold">Rating:</span>
-            <select
-              value={ratingFilter}
-              onChange={(e) => setRatingFilter(Number(e.target.value))}
-              className="bg-surface-800 border border-white/10 text-white rounded-lg px-2.5 py-1.5 outline-none cursor-pointer"
-            >
-              <option value={0}>Any Rating</option>
-              <option value={4.5}>⭐ 4.5 & Above</option>
-              <option value={4.0}>⭐ 4.0 & Above</option>
-            </select>
-          </div>
-        </div>
-
-        {/* Sort Control */}
-        <div className="flex items-center gap-2">
-          <span className="text-gray-400 font-semibold">Sort By:</span>
-          <select
-            value={sortBy}
-            onChange={(e) => setSortBy(e.target.value)}
-            className="bg-surface-800 border border-white/10 text-white rounded-lg px-2.5 py-1.5 outline-none cursor-pointer font-medium"
-          >
-            <option value="rating">Top Rated</option>
-            <option value="price-asc">Price: Low to High</option>
-            <option value="price-desc">Price: High to Low</option>
-            <option value="popularity">Most Popular</option>
-          </select>
-        </div>
-      </div>
-
-      {/* ═══ CONTENT AREA ═══ */}
-      {loading ? (
-        <div className="space-y-12">
-          {[...Array(3)].map((_, i) => (
-            <div key={i} className="space-y-4">
-              <div className="h-8 w-64 skeleton rounded-xl" />
-              <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-6">
-                {[...Array(4)].map((_, j) => (
-                  <div key={j} className="h-60 skeleton rounded-3xl" />
-                ))}
+        {loading ? (
+          <div className="space-y-12">
+            {[0, 1].map((i) => (
+              <div key={i} className="space-y-5">
+                <Skeleton className="h-8 w-64" />
+                <SkeletonGrid count={3} media={false} />
               </div>
-            </div>
-          ))}
-        </div>
-      ) : totalMatchingServices === 0 ? (
-        <div className="py-20 text-center text-gray-400 p-8 rounded-3xl bg-surface-850/50 border border-white/5">
-          <span className="text-5xl mb-3 block">🔎</span>
-          <h3 className="text-lg font-bold text-white mb-1">No services found matching your criteria</h3>
-          <p className="text-xs text-gray-400 mb-4">
-            Try adjusting your search terms, category, or price filters.
-          </p>
-          <button
-            onClick={() => {
-              setSearchQuery("");
-              setSelectedCategory("all");
-              setPriceFilter("all");
-              setRatingFilter(0);
-              setSearchParams({});
-            }}
-            className="px-5 py-2.5 rounded-xl bg-primary-600 text-white text-xs font-bold hover:bg-primary-500 transition-colors shadow-lg"
-          >
-            Clear All Filters
-          </button>
-        </div>
-      ) : isSingleCategoryView && activeCategoryObj ? (
-        /* ═══ SINGLE CATEGORY VIEW ═══ */
-        <div className="space-y-8 animate-fade-in">
-          {/* Category Banner Card */}
-          <div className="p-6 sm:p-8 rounded-3xl bg-gradient-to-r from-surface-850 via-surface-800 to-surface-850 border border-primary-500/20 shadow-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-6">
-            <div className="flex items-center gap-4">
-              <div className="w-16 h-16 rounded-2xl bg-surface-800 border border-white/10 flex items-center justify-center text-3xl shadow-inner flex-shrink-0">
-                {activeCategoryObj.icon_url || "✨"}
-              </div>
-              <div>
-                <div className="flex items-center gap-2">
-                  <h2 className="text-2xl font-extrabold text-white">{activeCategoryObj.name}</h2>
-                  <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-primary-500/20 text-primary-300">
-                    {activeCategoryObj.matchingServices.length} Services
-                  </span>
-                </div>
-                <p className="text-xs text-gray-300 mt-1 max-w-xl">
-                  {activeCategoryObj.description ||
-                    "Professional doorstep services provided by background-verified experts."}
-                </p>
-              </div>
-            </div>
-
-            <Link
-              to={`/services/${activeCategoryObj.id}`}
-              className="px-4 py-2.5 rounded-xl bg-surface-700 hover:bg-surface-600 text-white font-bold text-xs border border-white/10 flex items-center gap-2 transition-all flex-shrink-0 shadow-md"
-            >
-              <span>👥</span> View Category Providers →
-            </Link>
-          </div>
-
-          {/* Grid of All Services in this Category */}
-          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-6">
-            {activeCategoryObj.matchingServices.map((service) => (
-              <ServiceCard
-                key={service.id}
-                service={service}
-                categoryName={activeCategoryObj.name}
-                categoryIcon={activeCategoryObj.icon_url}
-                onBook={() => setBookingService(service)}
-                onDetails={() => setDetailService(service)}
-              />
             ))}
           </div>
-        </div>
-      ) : (
-        /* ═══ CATEGORIZED SECTIONS VIEW (ORGANIZED BY CATEGORY) ═══ */
-        <div className="space-y-14 animate-fade-in">
-          {categorizedData
-            .filter((cat) => cat.matchingServices.length > 0)
-            .map((cat) => {
-              // Display 3-4 popular services in the main dashboard view
-              const displayServices = searchQuery
-                ? cat.matchingServices
-                : cat.matchingServices.slice(0, 4);
-
-              return (
-                <section
-                  key={cat.id}
-                  className="rounded-3xl p-6 sm:p-8 bg-surface-850/40 border border-white/5 hover:border-white/10 transition-all shadow-xl"
-                >
-                  {/* Category Section Header */}
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-6 pb-4 border-b border-white/5">
-                    <div className="flex items-center gap-3">
-                      <div className="w-12 h-12 rounded-2xl bg-surface-800 border border-white/10 flex items-center justify-center text-2xl shadow-inner">
-                        {cat.icon_url || "✨"}
-                      </div>
-                      <div>
-                        <div className="flex items-center gap-2">
-                          <h2 className="text-xl font-bold text-white hover:text-primary-300 transition-colors">
+        ) : loadError ? (
+          <ErrorState title="Services didn't load" onRetry={loadData} retrying={loading} />
+        ) : totalMatchingServices === 0 ? (
+          <EmptyState
+            icon={SearchX}
+            title="No services match your search"
+            description="Try a broader keyword, another category, or remove a price or rating filter."
+            action={<Button variant="secondary" onClick={clearAll}>Clear all filters</Button>}
+          />
+        ) : isSingleCategoryView && activeCategoryObj ? (
+          <AnimatePresence mode="wait">
+            <motion.div key={activeCategoryObj.id} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0 }} transition={{ duration: 0.3 }}>
+              <CategoryBanner category={activeCategoryObj} count={activeCategoryObj.matchingServices.length} />
+              <Stagger animateOnMount className="mt-8 grid gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                {activeCategoryObj.matchingServices.map((service) => (
+                  <StaggerItem key={service.id}>
+                    <ServiceCard
+                      service={service}
+                      category={activeCategoryObj}
+                      showCategory={false}
+                      onBook={() => setBookingService(service)}
+                      onDetails={() => setDetailService(service)}
+                    />
+                  </StaggerItem>
+                ))}
+              </Stagger>
+            </motion.div>
+          </AnimatePresence>
+        ) : (
+          <div className="space-y-16">
+            {categorizedData
+              .filter((cat) => cat.matchingServices.length > 0)
+              .map((cat) => {
+                const displayServices = searchQuery ? cat.matchingServices : cat.matchingServices.slice(0, 4);
+                const visual = serviceVisual(cat);
+                const Icon = visual.icon;
+                return (
+                  <section key={cat.id} aria-labelledby={`cat-${cat.id}`}>
+                    <Reveal className="flex flex-col sm:flex-row sm:items-end justify-between gap-4 mb-6">
+                      <div className="flex items-center gap-3.5">
+                        <span className={cn("w-11 h-11 rounded-xl flex items-center justify-center shrink-0", visual.toneClasses.bg)}>
+                          <Icon className={cn("w-5 h-5", visual.toneClasses.icon)} aria-hidden="true" />
+                        </span>
+                        <div>
+                          <h2 id={`cat-${cat.id}`} className="text-xl font-semibold text-white">
                             {cat.name}
                           </h2>
-                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-surface-700 text-gray-300 border border-white/5">
-                            {cat.matchingServices.length} {cat.matchingServices.length === 1 ? "service" : "services"}
-                          </span>
+                          <p className="text-[13px] text-ink-400 mt-0.5 line-clamp-1">{cat.description}</p>
                         </div>
-                        <p className="text-xs text-gray-400 mt-0.5 line-clamp-1">
-                          {cat.description || "Doorstep service by verified professionals"}
-                        </p>
                       </div>
-                    </div>
-
-                    {/* Action buttons: View All in Category & Category Providers */}
-                    <div className="flex items-center gap-2 self-start sm:self-auto">
-                      <Link
-                        to={`/services/${cat.id}`}
-                        className="px-3 py-1.5 rounded-xl bg-surface-800 hover:bg-surface-700 text-gray-300 hover:text-white text-xs font-semibold border border-white/10 transition-colors"
-                        title="View approved technicians in this category"
-                      >
-                        Providers
-                      </Link>
-                      <button
-                        onClick={() => handleCategorySelect(String(cat.id))}
-                        className="px-4 py-1.5 rounded-xl bg-primary-600/20 hover:bg-primary-600 text-primary-300 hover:text-white font-bold text-xs border border-primary-500/30 transition-all flex items-center gap-1 shadow-sm"
-                      >
-                        <span>View All ({cat.matchingServices.length})</span>
-                        <span>→</span>
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* 3–4 Popular Service Cards */}
-                  <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-6">
-                    {displayServices.map((service) => (
-                      <ServiceCard
-                        key={service.id}
-                        service={service}
-                        categoryName={cat.name}
-                        categoryIcon={cat.icon_url}
-                        onBook={() => setBookingService(service)}
-                        onDetails={() => setDetailService(service)}
-                      />
-                    ))}
-                  </div>
-                </section>
-              );
-            })}
-        </div>
-      )}
-
-      {/* ═══ SERVICE DETAILS MODAL ═══ */}
-      {detailService && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md animate-fade-in">
-          <div className="relative w-full max-w-xl rounded-3xl bg-surface-850 border border-white/15 p-6 sm:p-8 shadow-2xl space-y-6">
-            <button
-              onClick={() => setDetailService(null)}
-              className="absolute top-5 right-5 w-8 h-8 rounded-full bg-surface-700 text-gray-300 hover:text-white flex items-center justify-center text-sm transition-colors"
-            >
-              ✕
-            </button>
-
-            {/* Header */}
-            <div>
-              <div className="flex items-center gap-2 mb-2">
-                <span className="px-2.5 py-0.5 rounded-full text-xs font-bold bg-primary-500/20 text-primary-300 border border-primary-500/30 flex items-center gap-1">
-                  <span>{detailService.category?.icon_url || "✨"}</span>
-                  <span>{detailService.category?.name || "Service"}</span>
-                </span>
-                <div className="flex items-center gap-1 text-yellow-400 text-xs font-bold bg-surface-800 px-2 py-0.5 rounded-full">
-                  <span>⭐</span>
-                  <span>{detailService.rating || 4.9}</span>
-                  <span className="text-gray-400 font-normal">({detailService.review_count || 12} reviews)</span>
-                </div>
-              </div>
-              <h2 className="text-2xl font-extrabold text-white mb-2">{detailService.title}</h2>
-              <p className="text-xs text-gray-300 leading-relaxed">{detailService.description}</p>
-            </div>
-
-            {/* Features & Specs */}
-            <div className="grid grid-cols-2 gap-3 p-4 rounded-2xl bg-surface-800/80 border border-white/5 text-xs">
-              <div>
-                <span className="text-gray-400 block mb-0.5">Estimated Duration</span>
-                <span className="font-bold text-white">{detailService.duration_minutes} Minutes</span>
-              </div>
-              <div>
-                <span className="text-gray-400 block mb-0.5">Warranty / Coverage</span>
-                <span className="font-bold text-emerald-400">30-Day NexServe Protection</span>
-              </div>
-              <div>
-                <span className="text-gray-400 block mb-0.5">Assigned Provider</span>
-                <span className="font-bold text-white truncate block">
-                  {detailService.provider?.full_name || "Verified NexServe Pro"}
-                </span>
-              </div>
-              <div>
-                <span className="text-gray-400 block mb-0.5">Payment Method</span>
-                <span className="font-bold text-white">Online (Razorpay Escrow)</span>
-              </div>
-            </div>
-
-            {/* Price & Action */}
-            <div className="flex items-center justify-between pt-4 border-t border-white/10">
-              <div>
-                <span className="text-[10px] text-gray-400 uppercase font-bold block">Standard Fixed Price</span>
-                <div className="flex items-baseline gap-1">
-                  <span className="text-2xl font-extrabold text-white">₹{detailService.price}</span>
-                  <span className="text-xs text-gray-400">all inclusive</span>
-                </div>
-              </div>
-
-              <div className="flex items-center gap-3">
-                {detailService.provider_id && (
-                  <Link
-                    to={`/providers/${detailService.provider_id}`}
-                    className="px-4 py-2.5 rounded-xl bg-surface-700 hover:bg-surface-600 text-white text-xs font-semibold border border-white/10 transition-colors"
-                  >
-                    View Provider Profile
-                  </Link>
-                )}
-                <button
-                  onClick={() => {
-                    const target = detailService;
-                    setDetailService(null);
-                    setBookingService(target);
-                  }}
-                  className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-primary-600 to-primary-500 hover:from-primary-500 hover:to-primary-400 text-white font-bold text-xs shadow-lg shadow-primary-500/25 transition-all"
-                >
-                  Book This Service →
-                </button>
-              </div>
-            </div>
+                      <div className="flex items-center gap-2">
+                        <ButtonLink to={`/services/${cat.id}`} variant="ghost" size="sm" icon={Users}>
+                          Professionals
+                        </ButtonLink>
+                        {!searchQuery && cat.matchingServices.length > 4 && (
+                          <Button variant="secondary" size="sm" iconRight={ArrowRight} onClick={() => handleCategorySelect(String(cat.id))}>
+                            All {cat.matchingServices.length}
+                          </Button>
+                        )}
+                      </div>
+                    </Reveal>
+                    <Stagger className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+                      {displayServices.map((service) => (
+                        <StaggerItem key={service.id}>
+                          <ServiceCard
+                            service={service}
+                            category={cat}
+                            showCategory={false}
+                            onBook={() => setBookingService(service)}
+                            onDetails={() => setDetailService(service)}
+                          />
+                        </StaggerItem>
+                      ))}
+                    </Stagger>
+                  </section>
+                );
+              })}
           </div>
-        </div>
-      )}
+        )}
+      </div>
 
-      {/* ═══ BOOKING WIZARD MODAL ═══ */}
+      {/* Mobile filters */}
+      <Drawer
+        open={filtersOpen}
+        onClose={() => setFiltersOpen(false)}
+        title="Filters"
+        footer={
+          <div className="grid grid-cols-2 gap-2">
+            <Button
+              variant="secondary"
+              onClick={() => {
+                setPriceFilter("all");
+                setRatingFilter(0);
+                setSortBy("rating");
+              }}
+            >
+              Reset
+            </Button>
+            <Button onClick={() => setFiltersOpen(false)}>Show {totalMatchingServices} results</Button>
+          </div>
+        }
+      >
+        <div className="p-5 space-y-5">{filterControls}</div>
+      </Drawer>
+
+      {/* Service details */}
+      <ServiceDetailModal
+        service={detailService}
+        onClose={() => setDetailService(null)}
+        onBook={(svc) => {
+          setDetailService(null);
+          setBookingService(svc);
+        }}
+      />
+
       {bookingService && (
         <BookingWizardModal
           service={bookingService}
@@ -538,59 +418,108 @@ export default function Services() {
   );
 }
 
-/**
- * Reusable Service Card Component for Category Sections.
- */
-function ServiceCard({ service, categoryName, categoryIcon, onBook, onDetails }) {
+function CategoryBanner({ category, count }) {
+  const visual = serviceVisual(category);
+  const Icon = visual.icon;
   return (
-    <div
-      onClick={onDetails}
-      className="p-5 rounded-3xl glass-card flex flex-col justify-between group hover:border-primary-500/40 transition-all cursor-pointer shadow-lg hover:shadow-primary-500/10"
-    >
-      <div>
-        {/* Top Badges */}
-        <div className="flex items-center justify-between mb-3">
-          <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-primary-500/15 text-primary-300 border border-primary-500/25 flex items-center gap-1">
-            <span>{categoryIcon || "✨"}</span>
-            <span>{categoryName || "Service"}</span>
+    <div className="relative overflow-hidden rounded-3xl border border-white/[0.07] bg-surface-900">
+      <img src={visual.image} alt="" className="absolute inset-0 w-full h-full object-cover opacity-30" />
+      <div className="absolute inset-0 bg-gradient-to-r from-surface-950 via-surface-950/85 to-surface-950/30" />
+      <div className="relative p-6 sm:p-10 flex flex-col md:flex-row md:items-end md:justify-between gap-6">
+        <div className="max-w-xl">
+          <span className={cn("w-12 h-12 rounded-2xl flex items-center justify-center", visual.toneClasses.bg)}>
+            <Icon className={cn("w-6 h-6", visual.toneClasses.icon)} aria-hidden="true" />
           </span>
-
-          <div className="flex items-center gap-1 text-yellow-400 text-xs font-bold bg-surface-800 px-2 py-0.5 rounded-full border border-white/5">
-            <span>⭐</span>
-            <span>{service.rating || "4.8"}</span>
-          </div>
+          <h2 className="mt-5 text-3xl font-semibold text-white">{category.name}</h2>
+          <p className="mt-2 text-ink-300 leading-relaxed">
+            {category.description || "Professional doorstep services by background-verified experts."}
+          </p>
+          <p className="mt-3 text-sm text-ink-400">{count} {count === 1 ? "service" : "services"} available</p>
         </div>
-
-        {/* Title & Description */}
-        <h3 className="text-base font-bold text-white mb-1.5 group-hover:text-primary-300 transition-colors">
-          {service.title}
-        </h3>
-        <p className="text-xs text-gray-400 line-clamp-2 mb-4 leading-relaxed">
-          {service.description}
-        </p>
-      </div>
-
-      {/* Footer Info */}
-      <div className="pt-3 border-t border-white/5 flex items-center justify-between gap-2">
-        <div>
-          <span className="text-[10px] text-gray-400 uppercase font-bold block">Starting At</span>
-          <div className="flex items-baseline gap-1">
-            <span className="text-lg font-extrabold text-white">₹{service.price}</span>
-            <span className="text-[11px] text-gray-400">/ {service.duration_minutes}m</span>
-          </div>
-        </div>
-
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            onBook();
-          }}
-          className="px-3.5 py-1.5 rounded-xl bg-gradient-to-r from-primary-600 to-primary-500 hover:from-primary-500 hover:to-primary-400 text-white font-bold text-xs shadow-md shadow-primary-500/20 transition-all flex items-center gap-1"
-        >
-          <span>Book</span>
-          <span>→</span>
-        </button>
+        <ButtonLink to={`/services/${category.id}`} variant="secondary" icon={Users} className="self-start md:self-auto">
+          Browse professionals
+        </ButtonLink>
       </div>
     </div>
+  );
+}
+
+function ServiceDetailModal({ service, onClose, onBook }) {
+  const visual = serviceVisual(service?.category);
+  return (
+    <Modal open={!!service} onClose={onClose} size="lg" hideClose bodyClassName="!px-0 !pb-0">
+      {service && (
+        <div>
+          <div className="relative h-48 sm:h-56 -mt-4 sm:-mt-0">
+            <img src={visual.image} alt="" className="w-full h-full object-cover" />
+            <div className="absolute inset-0 bg-gradient-to-t from-surface-900 via-surface-900/30 to-transparent" />
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Close"
+              className="absolute top-4 right-4 w-9 h-9 rounded-full bg-surface-950/70 backdrop-blur-md text-white flex items-center justify-center hover:bg-surface-950"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+          <div className="px-5 sm:px-7 pb-6 -mt-8 relative">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="text-xs font-medium text-ink-300">{service.category?.name || "Service"}</span>
+              <span className="text-ink-500">·</span>
+              <Rating value={service.rating} count={service.review_count} />
+            </div>
+            <h2 className="mt-2 text-2xl font-semibold text-white">{service.title}</h2>
+            <p className="mt-2 text-sm text-ink-300 leading-relaxed">{service.description}</p>
+
+            <dl className="mt-6 grid grid-cols-2 gap-3">
+              <div className="surface-inset p-4">
+                <dt className="text-xs text-ink-400 flex items-center gap-1.5">
+                  <Clock className="w-3.5 h-3.5" aria-hidden="true" /> Duration
+                </dt>
+                <dd className="mt-1 text-sm font-semibold text-white">{formatDuration(service.duration_minutes)}</dd>
+              </div>
+              <div className="surface-inset p-4">
+                <dt className="text-xs text-ink-400 flex items-center gap-1.5">
+                  <ShieldCheck className="w-3.5 h-3.5" aria-hidden="true" /> Protection
+                </dt>
+                <dd className="mt-1 text-sm font-semibold text-emerald-300">30-day re-work</dd>
+              </div>
+              <div className="surface-inset p-4">
+                <dt className="text-xs text-ink-400 flex items-center gap-1.5">
+                  <UserCheck className="w-3.5 h-3.5" aria-hidden="true" /> Offered by
+                </dt>
+                <dd className="mt-1 text-sm font-semibold text-white flex items-center gap-2 min-w-0">
+                  <Avatar src={service.provider?.profile_image} name={service.provider?.full_name || "Pro"} size="xs" />
+                  <span className="truncate">{service.provider?.full_name || "Verified pro"}</span>
+                </dd>
+              </div>
+              <div className="surface-inset p-4">
+                <dt className="text-xs text-ink-400 flex items-center gap-1.5">
+                  <CreditCard className="w-3.5 h-3.5" aria-hidden="true" /> Payment
+                </dt>
+                <dd className="mt-1 text-sm font-semibold text-white">Secure online</dd>
+              </div>
+            </dl>
+
+            <div className="mt-6 pt-5 border-t border-white/[0.06] flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div>
+                <p className="text-xs text-ink-400">Starts at</p>
+                <p className="text-2xl font-semibold text-white tabular font-heading">{formatINR(service.price)}</p>
+              </div>
+              <div className="flex gap-2">
+                {service.provider_id && (
+                  <ButtonLink to={`/providers/${service.provider_id}`} variant="secondary" className="flex-1 sm:flex-none">
+                    View provider
+                  </ButtonLink>
+                )}
+                <Button onClick={() => onBook(service)} iconRight={ArrowRight} className="flex-1 sm:flex-none">
+                  Book service
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </Modal>
   );
 }

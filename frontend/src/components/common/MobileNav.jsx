@@ -1,44 +1,65 @@
 import { Link, useLocation } from "react-router-dom";
+import { motion } from "framer-motion";
+import { Home, Wrench, Package, CalendarDays, User } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
+import { cn } from "../ui";
 
+/** Bottom tab bar for phones — thumb-reachable primary destinations. */
 export default function MobileNav() {
   const { user } = useAuth();
   const location = useLocation();
 
   const dashboardPath =
-    user?.role === "admin"
-      ? "/admin/dashboard"
-      : user?.role === "provider"
-      ? "/provider/dashboard"
-      : "/dashboard";
+    user?.role === "admin" ? "/admin/dashboard" : user?.role === "provider" ? "/provider/dashboard" : "/dashboard";
+  const bookingsPath = !user ? "/login" : user.role === "provider" ? "/provider/dashboard" : "/history";
 
-  const navItems = [
-    { label: "Home", path: "/", icon: "🏠" },
-    { label: "Services", path: "/services", icon: "🛠️" },
-    { label: "Bookings", path: user ? dashboardPath : "/login", icon: "📅" },
-    { label: "Contact", path: "/contact", icon: "💬" },
-    { label: user ? "Profile" : "Sign In", path: user ? dashboardPath : "/login", icon: "👤" },
+  const items = [
+    { label: "Home", path: "/", icon: Home, match: (p) => p === "/" },
+    { label: "Services", path: "/services", icon: Wrench, match: (p) => p.startsWith("/services") || p.startsWith("/providers") },
+    { label: "Rentals", path: "/rentals", icon: Package, match: (p) => p.startsWith("/rentals") || p === "/my-rentals" },
+    { label: "Bookings", path: bookingsPath, icon: CalendarDays, match: (p) => p === "/history" },
+    {
+      label: user ? "Account" : "Sign in",
+      path: user ? dashboardPath : "/login",
+      icon: User,
+      match: (p) => p === dashboardPath || p === "/login",
+    },
   ];
 
   return (
-    <div className="md:hidden fixed bottom-0 left-0 right-0 z-40 bg-surface-900/95 backdrop-blur-xl border-t border-white/10 px-2 py-1.5 shadow-2xl">
-      <div className="flex items-center justify-around">
-        {navItems.map((item) => {
-          const isActive = location.pathname === item.path;
+    <nav
+      aria-label="Mobile primary"
+      className="md:hidden fixed inset-x-0 bottom-0 z-40 bg-surface-950/90 backdrop-blur-xl border-t border-white/[0.06] safe-area-pb"
+    >
+      <ul className="grid grid-cols-5 px-2 pt-1.5">
+        {items.map((item) => {
+          const Icon = item.icon;
+          const active = item.match(location.pathname);
           return (
-            <Link
-              key={item.label}
-              to={item.path}
-              className={`flex flex-col items-center py-1 px-3 rounded-xl transition-all ${
-                isActive ? "text-primary-400 bg-primary-500/10 font-bold" : "text-gray-400 hover:text-white"
-              }`}
-            >
-              <span className="text-base mb-0.5">{item.icon}</span>
-              <span className="text-[10px] tracking-tight">{item.label}</span>
-            </Link>
+            <li key={item.label}>
+              <Link
+                to={item.path}
+                aria-current={active ? "page" : undefined}
+                className={cn(
+                  "relative flex flex-col items-center justify-center gap-1 h-12 rounded-xl text-[11px] font-medium transition-colors",
+                  active ? "text-white" : "text-ink-400"
+                )}
+              >
+                {active && (
+                  <motion.span
+                    layoutId="mobile-nav-active"
+                    className="absolute top-0 w-8 h-0.5 rounded-full bg-primary-400"
+                    transition={{ type: "spring", stiffness: 420, damping: 34 }}
+                    aria-hidden="true"
+                  />
+                )}
+                <Icon className={cn("w-5 h-5", active && "text-primary-300")} aria-hidden="true" />
+                {item.label}
+              </Link>
+            </li>
           );
         })}
-      </div>
-    </div>
+      </ul>
+    </nav>
   );
 }

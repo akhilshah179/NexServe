@@ -1,450 +1,532 @@
 /**
- * Home.jsx — Consumer Service Marketplace Homepage for NexServe.
- *
- * Inspired by Urban Company / TaskRabbit UX:
- * - Search bar as the primary hero focal point ("What service do you need?")
- * - Live category pills & location selector
- * - Popular service categories grid with provider metrics
- * - Trending services with direct booking triggers
- * - Top-rated verified service providers
- * - "How NexServe Works" 4-step workflow
- * - Trust & Safety / Verification showcase
- * - Authentic customer reviews
+ * Home — marketplace landing page.
+ * Hero → Trust → Categories → Trending → Professionals → How it works →
+ * Rentals → Trust & safety → Testimonials → Final CTA.
  */
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import { Link, useNavigate } from "react-router-dom";
+import {
+  ArrowRight,
+  ShieldCheck,
+  Lock,
+  Siren,
+  Truck,
+  Wallet,
+  BadgeCheck,
+  Headphones,
+  RefreshCcw,
+  Users,
+  LayoutGrid,
+  Package,
+  Star,
+} from "lucide-react";
 import { getCategories, getServices } from "../api/servicesApi";
 import { fetchPublicProvidersApi } from "../api/providersApi";
+import { getRentalItems, getRentalCategories } from "../api/rentalsApi";
 import EmergencyBookingModal from "../components/emergency/EmergencyBookingModal";
 import RecommendationSection from "../components/recommendations/RecommendationSection";
 import ReferralCard from "../components/referrals/ReferralCard";
 import BookingWizardModal from "../components/booking/BookingWizardModal";
+import HeroEcosystem from "../components/home/HeroEcosystem";
+import { HowItWorks, VerificationVisual, Testimonials } from "../components/home/HomeSections";
+import ServiceCard from "../components/cards/ServiceCard";
+import ProviderCard from "../components/cards/ProviderCard";
+import RentalCard from "../components/cards/RentalCard";
+import CategoryCard from "../components/cards/CategoryCard";
+import {
+  Section,
+  SectionHeader,
+  ButtonLink,
+  Button,
+  Stagger,
+  StaggerItem,
+  SkeletonCard,
+  Skeleton,
+  EmptyState,
+  ErrorState,
+  AnimatedNumber,
+  Reveal,
+} from "../components/ui";
+import { rentalVisual } from "../lib/visuals";
+import { useToast } from "../components/ui";
 
 export default function Home() {
   const [categories, setCategories] = useState([]);
-  const [trendingServices, setTrendingServices] = useState([]);
-  const [topProviders, setTopProviders] = useState([]);
+  const [services, setServices] = useState([]);
+  const [providers, setProviders] = useState([]);
+  const [rentals, setRentals] = useState([]);
+  const [rentalCategories, setRentalCategories] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [providersLoading, setProvidersLoading] = useState(true);
+  const [error, setError] = useState(false);
 
-  // Search & Filter state
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCity, setSelectedCity] = useState("Bengaluru");
   const [showEmergencyModal, setShowEmergencyModal] = useState(false);
   const [wizardService, setWizardService] = useState(null);
 
   const navigate = useNavigate();
+  const { toast } = useToast();
+
+  const loadCatalogue = useCallback(async () => {
+    setLoading(true);
+    setError(false);
+    try {
+      const [cats, servs, items, rcats] = await Promise.all([
+        getCategories(),
+        getServices(),
+        getRentalItems(),
+        getRentalCategories().catch(() => []),
+      ]);
+      setCategories(cats || []);
+      setServices(servs || []);
+      setRentals(items || []);
+      setRentalCategories(rcats || []);
+    } catch (err) {
+      console.warn("Failed to load homepage data:", err);
+      setError(true);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
-    async function loadHomepageData() {
-      try {
-        const [catsData, servsData, provsData] = await Promise.all([
-          getCategories(),
-          getServices(),
-          fetchPublicProvidersApi({ city: selectedCity }),
-        ]);
+    loadCatalogue();
+  }, [loadCatalogue]);
 
-        setCategories(catsData || []);
-        setTrendingServices((servsData || []).slice(0, 6));
-        setTopProviders((provsData || []).slice(0, 4));
-      } catch (err) {
-        console.warn("Failed to load homepage data:", err);
-      } finally {
-        setLoading(false);
-      }
-    }
-    loadHomepageData();
+  // Professionals are scoped to the selected city.
+  useEffect(() => {
+    let alive = true;
+    setProvidersLoading(true);
+    fetchPublicProvidersApi({ city: selectedCity })
+      .then((data) => alive && setProviders(data || []))
+      .catch((err) => {
+        console.warn("Failed to load providers:", err);
+        if (alive) setProviders([]);
+      })
+      .finally(() => alive && setProvidersLoading(false));
+    return () => {
+      alive = false;
+    };
   }, [selectedCity]);
 
-  const handleHeroSearch = (e) => {
-    e.preventDefault();
-    if (searchQuery.trim()) {
-      navigate(`/services?search=${encodeURIComponent(searchQuery.trim())}`);
-    } else {
-      navigate("/services");
-    }
+  const handleHeroSearch = () => {
+    const q = searchQuery.trim();
+    navigate(q ? `/services?search=${encodeURIComponent(q)}` : "/services");
   };
 
+  const countByCategory = useMemo(() => {
+    const m = {};
+    services.forEach((s) => (m[s.category_id] = (m[s.category_id] || 0) + 1));
+    return m;
+  }, [services]);
+
+  // Most-booked service from each category, so the row spans the marketplace.
+  const trending = useMemo(() => {
+    const score = (s) => (s.review_count || 0) * (s.rating || 0);
+    const seen = new Set();
+    return [...services]
+      .sort((a, b) => score(b) - score(a))
+      .filter((s) => (seen.has(s.category_id) ? false : seen.add(s.category_id)))
+      .slice(0, 6);
+  }, [services]);
+
+  const topProviders = useMemo(
+    () => [...providers].sort((a, b) => (b.rating || 0) - (a.rating || 0) || (b.review_count || 0) - (a.review_count || 0)).slice(0, 4),
+    [providers]
+  );
+
+  const featuredRentals = useMemo(
+    () => [...rentals].sort((a, b) => (b.review_count || 0) - (a.review_count || 0)).slice(0, 4),
+    [rentals]
+  );
+
+  const avgRating = useMemo(() => {
+    const r = providers.filter((p) => Number(p.rating) > 0);
+    return r.length ? r.reduce((s, p) => s + Number(p.rating), 0) / r.length : 0;
+  }, [providers]);
+
+  const popular = categories.slice(0, 4).map((c) => ({ label: c.name, to: `/services?category=${c.id}` }));
+
+  const stats = [
+    { label: "Verified professionals", value: providers.length, suffix: "", icon: Users, sub: `in ${selectedCity}` },
+    { label: "Services to book", value: services.length, suffix: "", icon: LayoutGrid, sub: `${categories.length} categories` },
+    { label: "Items to rent", value: rentals.length, suffix: "", icon: Package, sub: `${rentalCategories.length || "Multiple"} categories` },
+    { label: "Average pro rating", value: avgRating, format: (n) => n.toFixed(1), icon: Star, sub: "From customer reviews" },
+  ];
+
   return (
-    <div className="relative overflow-hidden pt-20">
-      {/* ═══ HERO SECTION ═══ */}
-      <section className="relative min-h-[85vh] flex items-center justify-center py-16 px-4">
-        {/* Subtle background ambient glows */}
-        <div className="absolute inset-0 overflow-hidden pointer-events-none">
-          <div className="absolute top-1/4 left-1/2 -translate-x-1/2 w-[700px] h-[400px] bg-primary-600/15 rounded-full blur-[120px]" />
-          <div className="absolute top-1/3 left-1/4 w-[350px] h-[350px] bg-accent-500/10 rounded-full blur-[100px]" />
+    <div className="relative">
+      <HeroEcosystem
+        query={searchQuery}
+        onQueryChange={setSearchQuery}
+        city={selectedCity}
+        onCityChange={setSelectedCity}
+        onSubmit={handleHeroSearch}
+        popular={popular}
+      />
+
+      {/* ═══ TRUST INDICATORS ═══ */}
+      <section aria-label="NexServe at a glance" className="relative z-10 pt-14 xl:pt-0 pb-6">
+        <div className="container-page">
+          <Reveal className="surface overflow-hidden">
+            <dl className="grid grid-cols-2 lg:grid-cols-5 gap-px bg-white/[0.06]">
+              {stats.map((s, i) => {
+                const Icon = s.icon;
+                const pending = i === 0 ? providersLoading : loading;
+                return (
+                  <div key={s.label} className="bg-surface-900 p-5 sm:p-6">
+                    <dt className="flex items-center gap-2 text-[13px] text-ink-400">
+                      <Icon className="w-4 h-4 text-ink-500" aria-hidden="true" />
+                      {s.label}
+                    </dt>
+                    <dd className="mt-2 text-3xl font-semibold text-white tabular tracking-tight font-heading">
+                      {pending ? <Skeleton className="h-8 w-16" /> : <AnimatedNumber value={s.value} format={s.format} />}
+                    </dd>
+                    <p className="mt-1 text-xs text-ink-500">{s.sub}</p>
+                  </div>
+                );
+              })}
+              <div className="col-span-2 lg:col-span-1 p-5 sm:p-6 bg-surface-900 bg-[linear-gradient(rgb(20_184_143/0.05),rgb(20_184_143/0.05))]">
+                <dt className="flex items-center gap-2 text-[13px] text-emerald-300">
+                  <Lock className="w-4 h-4" aria-hidden="true" />
+                  Secure payments
+                </dt>
+                <dd className="mt-2 text-sm text-ink-200 leading-relaxed">
+                  Every checkout runs through Razorpay. Rental deposits are held, never spent.
+                </dd>
+              </div>
+            </dl>
+          </Reveal>
         </div>
+      </section>
 
-        <div className="relative max-w-5xl mx-auto text-center">
-          {/* Emergency Dispatch Pill */}
-          <div className="inline-flex items-center gap-2.5 px-4 py-2 rounded-full bg-error-500/10 border border-error-500/30 text-error-400 text-xs font-bold mb-6 animate-pulse">
-            <span>🚨 Urgent Issue?</span>
-            <button
-              onClick={() => setShowEmergencyModal(true)}
-              className="underline hover:text-white transition-colors"
-            >
-              Get 24/7 Immediate Emergency Technician →
-            </button>
-          </div>
+      {error ? (
+        <Section tight>
+          <ErrorState
+            title="We couldn't load the marketplace"
+            description="Categories, services and rentals didn't load. Check your connection and try again."
+            onRetry={loadCatalogue}
+            retrying={loading}
+          />
+        </Section>
+      ) : (
+        <>
+          {/* ═══ POPULAR CATEGORIES ═══ */}
+          <Section>
+            <SectionHeader
+              eyebrow="Categories"
+              title="Everything your home needs"
+              subtitle="From a quick fix to a full deep clean — pick a category to see services and the professionals who offer them."
+              action={
+                <ButtonLink to="/services" variant="secondary" iconRight={ArrowRight}>
+                  All services
+                </ButtonLink>
+              }
+            />
+            {loading ? (
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                {Array.from({ length: 8 }).map((_, i) => (
+                  <Skeleton key={i} className={i < 4 ? "h-[220px] rounded-2xl" : "h-[76px] rounded-2xl"} />
+                ))}
+              </div>
+            ) : (
+              <>
+                <Stagger className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                  {categories.slice(0, 4).map((cat) => (
+                    <StaggerItem key={cat.id}>
+                      <CategoryCard category={cat} count={countByCategory[cat.id] || 0} variant="image" />
+                    </StaggerItem>
+                  ))}
+                </Stagger>
+                <Stagger className="mt-4 grid gap-3 grid-cols-1 min-[420px]:grid-cols-2 lg:grid-cols-4">
+                  {categories.slice(4).map((cat) => (
+                    <StaggerItem key={cat.id}>
+                      <CategoryCard category={cat} count={countByCategory[cat.id] || 0} />
+                    </StaggerItem>
+                  ))}
+                </Stagger>
+              </>
+            )}
+          </Section>
 
-          <h1 className="text-4xl sm:text-6xl font-extrabold tracking-tight text-white mb-4 leading-tight">
-            What service do you need today?
-          </h1>
+          {/* ═══ TRENDING SERVICES ═══ */}
+          <Section className="bg-surface-900/30 border-y border-white/[0.04]">
+            <SectionHeader
+              eyebrow="Trending"
+              title="Most booked this week"
+              subtitle="The services customers book most often, ranked by reviews and rating."
+              action={
+                <ButtonLink to="/services" variant="ghost" iconRight={ArrowRight}>
+                  Browse all
+                </ButtonLink>
+              }
+            />
+            {loading ? (
+              <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+                {Array.from({ length: 3 }).map((_, i) => (
+                  <SkeletonCard key={i} />
+                ))}
+              </div>
+            ) : trending.length ? (
+              <Stagger className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+                {trending.map((service) => (
+                  <StaggerItem key={service.id}>
+                    <ServiceCard service={service} media onBook={setWizardService} />
+                  </StaggerItem>
+                ))}
+              </Stagger>
+            ) : (
+              <EmptyState compact icon={LayoutGrid} title="No services listed yet" description="New services appear here as soon as professionals publish them." />
+            )}
 
-          <p className="max-w-2xl mx-auto text-base sm:text-lg text-gray-300 mb-8">
-            Book verified experts for home cleaning, AC repair, tutoring, plumbing, electrical, and fitness at fixed transparent prices.
-          </p>
+            <RecommendationSection onSelectService={(svc) => setWizardService(svc)} />
+          </Section>
 
-          {/* MAIN HERO SEARCH BAR */}
-          <form
-            onSubmit={handleHeroSearch}
-            className="max-w-3xl mx-auto p-2.5 rounded-2xl bg-surface-900/90 border border-white/15 shadow-2xl backdrop-blur-xl flex flex-col sm:flex-row items-center gap-2 mb-8"
-          >
-            {/* City Selector */}
-            <div className="flex items-center gap-2 px-3 py-2 sm:py-0 text-xs font-semibold text-gray-300 border-b sm:border-b-0 sm:border-r border-white/10 w-full sm:w-auto">
-              <span>📍</span>
-              <select
-                value={selectedCity}
-                onChange={(e) => setSelectedCity(e.target.value)}
-                className="bg-transparent text-white outline-none cursor-pointer font-medium"
-              >
-                <option value="Bengaluru" className="bg-surface-850 text-white">Bengaluru</option>
-                <option value="Mumbai" className="bg-surface-850 text-white">Mumbai</option>
-                <option value="Delhi NCR" className="bg-surface-850 text-white">Delhi NCR</option>
-                <option value="Hyderabad" className="bg-surface-850 text-white">Hyderabad</option>
-              </select>
-            </div>
-
-            {/* Query Input */}
-            <div className="relative flex-1 w-full">
-              <input
-                type="text"
-                placeholder="Try 'Deep home cleaning', 'AC Gas refill', 'Plumber'..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full px-4 py-3 bg-transparent text-sm text-white placeholder-gray-400 outline-none"
+          {/* ═══ RECOMMENDED PROFESSIONALS ═══ */}
+          <Section>
+            <SectionHeader
+              eyebrow="Professionals"
+              title={`Top-rated pros in ${selectedCity}`}
+              subtitle="Every professional is identity-verified and background-checked before their first booking."
+              action={
+                <ButtonLink to="/services" variant="secondary" iconRight={ArrowRight}>
+                  Find a pro
+                </ButtonLink>
+              }
+            />
+            {providersLoading ? (
+              <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
+                {Array.from({ length: 4 }).map((_, i) => (
+                  <SkeletonCard key={i} media={false} />
+                ))}
+              </div>
+            ) : topProviders.length ? (
+              <Stagger className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
+                {topProviders.map((p) => (
+                  <StaggerItem key={p.id}>
+                    <ProviderCard provider={p} />
+                  </StaggerItem>
+                ))}
+              </Stagger>
+            ) : (
+              <EmptyState
+                compact
+                icon={Users}
+                title={`We're not in ${selectedCity} yet`}
+                description="Professionals in this city are still being onboarded. Bengaluru is fully live today."
+                action={
+                  <Button variant="secondary" onClick={() => setSelectedCity("Bengaluru")}>
+                    Show Bengaluru
+                  </Button>
+                }
               />
-            </div>
+            )}
+          </Section>
 
-            {/* Submit Button */}
-            <button
-              type="submit"
-              className="w-full sm:w-auto px-8 py-3.5 rounded-xl bg-gradient-to-r from-primary-600 to-primary-500 hover:from-primary-500 hover:to-primary-400 text-white font-bold text-sm shadow-lg shadow-primary-500/25 transition-all"
-            >
-              Search Services
-            </button>
-          </form>
+          {/* ═══ HOW IT WORKS ═══ */}
+          <Section className="bg-surface-900/30 border-y border-white/[0.04]">
+            <SectionHeader
+              align="center"
+              eyebrow="How it works"
+              title="Booked in minutes. Protected end to end."
+              subtitle="Two marketplaces, one simple flow."
+            />
+            <HowItWorks />
+          </Section>
 
-          {/* Category Pills Quick Bar */}
-          <div className="flex items-center justify-center flex-wrap gap-2 text-xs text-gray-400">
-            <span className="font-semibold text-gray-500">Popular:</span>
-            {categories.slice(0, 5).map((cat) => (
-              <Link
-                key={cat.id}
-                to={`/services?category=${cat.id}`}
-                className="px-3 py-1 rounded-full bg-surface-800/80 border border-white/10 hover:border-primary-500/40 text-gray-300 hover:text-white transition-all"
-              >
-                {cat.icon_url || "✨"} {cat.name}
-              </Link>
-            ))}
-          </div>
-        </div>
-      </section>
+          {/* ═══ RENTAL MARKETPLACE ═══ */}
+          <Section>
+            <div className="relative overflow-hidden rounded-3xl border border-emerald-400/10 bg-[linear-gradient(180deg,rgb(20_184_143/0.06),transparent_40%)] p-5 sm:p-8 lg:p-10">
+              <div
+                className="absolute -top-32 -right-24 w-[420px] h-[420px] rounded-full bg-[radial-gradient(closest-side,rgb(20_184_143/0.14),transparent)] blur-2xl pointer-events-none"
+                aria-hidden="true"
+              />
+              <div className="relative grid gap-8 lg:grid-cols-[1fr_auto] lg:items-end mb-8">
+                <Reveal className="max-w-2xl">
+                  <p className="eyebrow eyebrow-rental mb-3">NexServe Rentals</p>
+                  <h2 className="text-[28px] sm:text-4xl font-semibold text-white leading-[1.15]">
+                    Rent what you need. Return it when you're done.
+                  </h2>
+                  <p className="mt-3 text-[15px] sm:text-base text-ink-400 leading-relaxed">
+                    Cameras, camping kits, party sound, gaming rigs and more — from verified local hosts, with a
+                    refundable deposit on every order.
+                  </p>
+                  <ul className="mt-6 flex flex-wrap gap-x-6 gap-y-3 text-sm text-ink-200">
+                    <li className="flex items-center gap-2">
+                      <Wallet className="w-4 h-4 text-emerald-300" aria-hidden="true" />
+                      Refundable deposits
+                    </li>
+                    <li className="flex items-center gap-2">
+                      <Truck className="w-4 h-4 text-emerald-300" aria-hidden="true" />
+                      Delivery or self-pickup
+                    </li>
+                    <li className="flex items-center gap-2">
+                      <BadgeCheck className="w-4 h-4 text-emerald-300" aria-hidden="true" />
+                      Verified hosts
+                    </li>
+                  </ul>
+                </Reveal>
+                <ButtonLink to="/rentals" variant="rental" iconRight={ArrowRight} className="self-start lg:self-end">
+                  Explore rentals
+                </ButtonLink>
+              </div>
 
-      {/* ═══ TWO MAIN MARKETPLACE SECTIONS (SERVICES & RENTALS) ═══ */}
-      <section className="py-6 px-4 max-w-7xl mx-auto">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          {/* Services Section Card */}
-          <Link
-            to="/services"
-            className="group relative overflow-hidden rounded-3xl p-8 bg-gradient-to-br from-surface-850 via-surface-900 to-surface-850 border border-primary-500/30 hover:border-primary-500/70 shadow-2xl transition-all duration-300 hover:-translate-y-1"
-          >
-            <div className="absolute top-0 right-0 w-48 h-48 bg-primary-600/10 rounded-full blur-3xl pointer-events-none group-hover:bg-primary-600/20 transition-all" />
-            <div className="relative space-y-4">
-              <div className="w-14 h-14 rounded-2xl bg-primary-600/20 border border-primary-500/40 flex items-center justify-center text-3xl shadow-lg shadow-primary-500/20">
-                🛠️
-              </div>
-              <div>
-                <span className="text-[10px] font-extrabold uppercase tracking-wider text-primary-400">
-                  Marketplace 1 • Instant Slot Booking
-                </span>
-                <h2 className="text-2xl sm:text-3xl font-extrabold text-white mt-1 group-hover:text-primary-300 transition-colors">
-                  Professional Services
-                </h2>
-                <p className="text-xs sm:text-sm text-gray-400 mt-2 leading-relaxed">
-                  Book verified professionals for home cleaning, AC service, salon, plumbing, electrical, and car repairs at your doorstep.
-                </p>
-              </div>
-              <div className="flex items-center gap-2 text-xs font-bold text-primary-400 group-hover:text-primary-300 pt-2">
-                <span>Explore 40+ Services</span>
-                <span className="group-hover:translate-x-1 transition-transform">→</span>
-              </div>
-            </div>
-          </Link>
-
-          {/* Rentals Section Card */}
-          <Link
-            to="/rentals"
-            className="group relative overflow-hidden rounded-3xl p-8 bg-gradient-to-br from-surface-850 via-surface-900 to-surface-850 border border-emerald-500/30 hover:border-emerald-500/70 shadow-2xl transition-all duration-300 hover:-translate-y-1"
-          >
-            <div className="absolute top-0 right-0 w-48 h-48 bg-emerald-600/10 rounded-full blur-3xl pointer-events-none group-hover:bg-emerald-600/20 transition-all" />
-            <div className="relative space-y-4">
-              <div className="w-14 h-14 rounded-2xl bg-emerald-600/20 border border-emerald-500/40 flex items-center justify-center text-3xl shadow-lg shadow-emerald-500/20">
-                📦
-              </div>
-              <div>
-                <span className="text-[10px] font-extrabold uppercase tracking-wider text-emerald-400">
-                  Marketplace 2 • Date-Range & Deposit Escrow
-                </span>
-                <h2 className="text-2xl sm:text-3xl font-extrabold text-white mt-1 group-hover:text-emerald-300 transition-colors">
-                  Physical Items & Gear Rental
-                </h2>
-                <p className="text-xs sm:text-sm text-gray-400 mt-2 leading-relaxed">
-                  Rent cameras, camping tents, sound consoles, party equipment, gaming rigs, and vehicles with express delivery or pickup.
-                </p>
-              </div>
-              <div className="flex items-center gap-2 text-xs font-bold text-emerald-400 group-hover:text-emerald-300 pt-2">
-                <span>Explore Rental Marketplace</span>
-                <span className="group-hover:translate-x-1 transition-transform">→</span>
-              </div>
-            </div>
-          </Link>
-        </div>
-      </section>
-
-      {/* ═══ POPULAR SERVICE CATEGORIES ═══ */}
-      <section className="py-16 px-4 max-w-7xl mx-auto">
-        <div className="flex items-end justify-between mb-8">
-          <div>
-            <h2 className="text-2xl sm:text-3xl font-extrabold text-white">Popular Service Categories</h2>
-            <p className="text-sm text-gray-400 mt-1">Explore top-rated services with upfront transparent pricing</p>
-          </div>
-          <Link
-            to="/services"
-            className="text-xs font-bold text-primary-400 hover:text-primary-300 flex items-center gap-1"
-          >
-            View All Categories →
-          </Link>
-        </div>
-
-        {loading ? (
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
-            {[...Array(6)].map((_, i) => (
-              <div key={i} className="h-32 skeleton rounded-2xl" />
-            ))}
-          </div>
-        ) : (
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
-            {categories.map((cat) => (
-              <Link
-                key={cat.id}
-                to={`/services?category=${cat.id}`}
-                className="p-5 rounded-2xl glass-card flex flex-col items-center text-center group"
-              >
-                <div className="w-14 h-14 rounded-2xl bg-surface-800 border border-white/10 flex items-center justify-center text-2xl mb-3 group-hover:scale-110 group-hover:bg-primary-500/20 transition-transform">
-                  {cat.icon_url || "🧹"}
+              {rentalCategories.length > 0 && (
+                <div className="relative mb-6 flex gap-2 overflow-x-auto scrollbar-none -mx-1 px-1 pb-1">
+                  {rentalCategories.map((c) => {
+                    const v = rentalVisual(c);
+                    const Icon = v.icon;
+                    return (
+                      <Link
+                        key={c.id}
+                        to={`/rentals?category=${c.slug}`}
+                        className="shrink-0 inline-flex items-center gap-2 h-9 px-3.5 rounded-full text-[13px] font-medium text-ink-200 bg-surface-900/80 border border-white/[0.08] hover:border-emerald-400/40 hover:text-white transition-colors"
+                      >
+                        <Icon className="w-4 h-4 text-emerald-300" aria-hidden="true" />
+                        {c.name}
+                      </Link>
+                    );
+                  })}
                 </div>
-                <h3 className="text-sm font-bold text-white mb-1 group-hover:text-primary-300 transition-colors">
-                  {cat.name}
-                </h3>
-                <p className="text-[11px] text-gray-400">Verified Pros</p>
-              </Link>
-            ))}
-          </div>
-        )}
-      </section>
+              )}
 
-      {/* ═══ POPULAR & TRENDING SERVICES ═══ */}
-      <section className="py-16 px-4 max-w-7xl mx-auto border-t border-white/5">
-        <div className="flex items-end justify-between mb-8">
-          <div>
-            <h2 className="text-2xl sm:text-3xl font-extrabold text-white">Trending Services</h2>
-            <p className="text-sm text-gray-400 mt-1">Most booked services this week in {selectedCity}</p>
-          </div>
-          <Link to="/services" className="text-xs font-bold text-primary-400 hover:text-primary-300">
-            Browse All Services →
-          </Link>
-        </div>
-
-        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
-          {trendingServices.map((service) => (
-            <div key={service.id} className="p-6 rounded-3xl glass-card flex flex-col justify-between">
-              <div>
-                <div className="flex items-center justify-between mb-3">
-                  <span className="px-3 py-1 rounded-full text-[11px] font-bold bg-primary-500/20 text-primary-300 border border-primary-500/30">
-                    {service.category?.name || "Service"}
-                  </span>
-                  <div className="flex items-center gap-1 text-yellow-400 text-xs font-bold">
-                    <span>⭐</span>
-                    <span>{service.rating || "4.9"}</span>
-                    <span className="text-gray-400 font-normal">({service.review_count || 24})</span>
-                  </div>
+              {loading ? (
+                <div className="relative grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
+                  {Array.from({ length: 4 }).map((_, i) => (
+                    <SkeletonCard key={i} />
+                  ))}
                 </div>
-
-                <h3 className="text-lg font-bold text-white mb-2">{service.title}</h3>
-                <p className="text-xs text-gray-400 line-clamp-2 mb-4">{service.description}</p>
-              </div>
-
-              <div className="pt-4 border-t border-white/5 flex items-center justify-between">
-                <div>
-                  <span className="text-[10px] text-gray-400 block uppercase font-bold">Starting from</span>
-                  <span className="text-lg font-extrabold text-white">₹{service.price}</span>
-                  <span className="text-[11px] text-gray-400 ml-1">/ {service.duration_minutes} mins</span>
-                </div>
-
-                <Link
-                  to={`/services`}
-                  className="px-4 py-2 rounded-xl bg-primary-600 hover:bg-primary-500 text-white font-bold text-xs shadow transition-all"
-                >
-                  Book Now
-                </Link>
-              </div>
+              ) : featuredRentals.length ? (
+                <Stagger className="relative grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
+                  {featuredRentals.map((item) => (
+                    <StaggerItem key={item.id}>
+                      <RentalCard item={item} />
+                    </StaggerItem>
+                  ))}
+                </Stagger>
+              ) : (
+                <EmptyState compact tone="rental" icon={Package} title="No rentals listed yet" description="Hosts are adding gear — check back soon." />
+              )}
             </div>
-          ))}
-        </div>
-      </section>
+          </Section>
 
-      {/* ═══ AI SMART RECOMMENDATIONS FEED ═══ */}
-      <section className="px-4 max-w-7xl mx-auto border-t border-white/5">
-        <RecommendationSection onSelectService={(svc) => setWizardService(svc)} />
-      </section>
-
-      {/* ═══ REFERRAL REWARDS SECTION ═══ */}
-      <section className="py-8 px-4 max-w-7xl mx-auto">
-        <ReferralCard />
-      </section>
-
-      {/* ═══ RECOMMENDED VERIFIED PROVIDERS ═══ */}
-      <section className="py-16 px-4 max-w-7xl mx-auto border-t border-white/5">
-        <div className="flex items-end justify-between mb-8">
-          <div>
-            <h2 className="text-2xl sm:text-3xl font-extrabold text-white">Recommended Professionals</h2>
-            <p className="text-sm text-gray-400 mt-1">Background-checked service experts in your area</p>
-          </div>
-        </div>
-
-        <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-6">
-          {topProviders.map((provider) => (
-            <div key={provider.id} className="p-6 rounded-3xl glass-card text-center flex flex-col justify-between">
+          {/* ═══ TRUST & SAFETY ═══ */}
+          <Section className="bg-surface-900/30 border-y border-white/[0.04]">
+            <div className="grid gap-12 lg:grid-cols-2 lg:items-center">
               <div>
-                <div className="relative w-20 h-20 mx-auto mb-4">
-                  {provider.profile_image ? (
-                    <img
-                      src={provider.profile_image}
-                      alt={provider.full_name}
-                      className="w-full h-full rounded-2xl object-cover ring-2 ring-primary-500/40"
-                    />
-                  ) : (
-                    <div className="w-full h-full rounded-2xl bg-gradient-to-br from-primary-600 to-accent-500 flex items-center justify-center text-white text-2xl font-bold">
-                      {provider.full_name?.charAt(0)}
+                <Reveal>
+                  <p className="eyebrow mb-3">Trust &amp; safety</p>
+                  <h2 className="text-[28px] sm:text-4xl font-semibold text-white leading-[1.15]">
+                    Peace of mind is part of every booking.
+                  </h2>
+                  <p className="mt-3 text-[15px] sm:text-base text-ink-400 leading-relaxed max-w-xl">
+                    We vet every professional and host, keep your payments protected, and stay with you until the job
+                    is done right.
+                  </p>
+                </Reveal>
+                <Stagger className="mt-8 grid sm:grid-cols-2 gap-5">
+                  {[
+                    { icon: ShieldCheck, title: "Verified people", desc: "ID, background and skills checks before any profile goes live." },
+                    { icon: Lock, title: "Protected payments", desc: "Pay through Razorpay. Rental deposits are held and refunded on return." },
+                    { icon: RefreshCcw, title: "Re-work guarantee", desc: "Not right the first time? We'll send someone back to fix it." },
+                    { icon: Headphones, title: "Real human support", desc: "Talk to our support team seven days a week." },
+                  ].map((f) => {
+                    const Icon = f.icon;
+                    return (
+                      <StaggerItem key={f.title} className="flex gap-3.5">
+                        <span className="w-10 h-10 rounded-xl bg-white/[0.04] ring-1 ring-inset ring-white/[0.07] text-ink-200 flex items-center justify-center shrink-0">
+                          <Icon className="w-[18px] h-[18px]" aria-hidden="true" />
+                        </span>
+                        <div>
+                          <h3 className="text-sm font-semibold text-white">{f.title}</h3>
+                          <p className="mt-1 text-sm text-ink-400 leading-relaxed">{f.desc}</p>
+                        </div>
+                      </StaggerItem>
+                    );
+                  })}
+                </Stagger>
+
+                <Reveal delay={0.1}>
+                  <div className="mt-8 flex flex-col sm:flex-row sm:items-center gap-4 p-4 rounded-2xl bg-rose-500/[0.06] border border-rose-400/15">
+                    <span className="w-10 h-10 rounded-xl bg-rose-500/15 text-rose-300 flex items-center justify-center shrink-0">
+                      <Siren className="w-5 h-5" aria-hidden="true" />
+                    </span>
+                    <div className="flex-1">
+                      <p className="text-sm font-semibold text-white">Something urgent?</p>
+                      <p className="text-[13px] text-ink-400">Burst pipe, power failure or a broken AC — get the nearest on-call technician.</p>
                     </div>
-                  )}
-                  <span className="absolute -bottom-1 -right-1 px-1.5 py-0.5 rounded-md bg-emerald-500 text-white text-[10px] font-bold shadow">
-                    ✓ Verified
-                  </span>
-                </div>
-
-                <h3 className="text-base font-bold text-white mb-1">{provider.full_name}</h3>
-                <p className="text-xs text-gray-400 mb-3">{provider.location || selectedCity}</p>
-
-                <div className="flex items-center justify-center gap-3 text-xs mb-4">
-                  <div className="flex items-center gap-1 text-yellow-400 font-bold">
-                    <span>⭐</span> {provider.rating || "4.9"}
+                    <Button variant="danger" size="sm" onClick={() => setShowEmergencyModal(true)}>
+                      Emergency help
+                    </Button>
                   </div>
-                  <div className="text-gray-400">
-                    {provider.experience_years || 5}+ yrs exp
-                  </div>
-                </div>
+                </Reveal>
               </div>
-
-              <div className="pt-4 border-t border-white/5 flex items-center justify-between">
-                <span className="text-xs text-gray-300 font-semibold">₹{provider.hourly_rate}/hr</span>
-                <Link
-                  to={`/providers/${provider.id}`}
-                  className="px-3.5 py-1.5 rounded-xl bg-surface-700 hover:bg-surface-600 text-white text-xs font-semibold border border-white/10"
-                >
-                  View Profile
-                </Link>
-              </div>
+              <VerificationVisual />
             </div>
-          ))}
-        </div>
-      </section>
+          </Section>
 
-      {/* ═══ HOW NEXSERVE WORKS ═══ */}
-      <section className="py-20 px-4 max-w-7xl mx-auto border-t border-white/5">
-        <div className="text-center mb-14">
-          <h2 className="text-2xl sm:text-4xl font-extrabold text-white mb-3">How NexServe Works</h2>
-          <p className="text-sm sm:text-base text-gray-400 max-w-xl mx-auto">
-            Book professional services at your doorstep in just four simple steps
-          </p>
-        </div>
+          {/* ═══ TESTIMONIALS ═══ */}
+          {!providersLoading && providers.length > 0 && (
+            <Section>
+              <SectionHeader
+                eyebrow="Customer love"
+                title="Rated highly, booked again"
+                subtitle="What customers say after their booking — straight from verified reviews."
+              />
+              <Testimonials providers={providers} />
+            </Section>
+          )}
 
-        <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-8 relative">
-          {[
-            { step: "01", title: "Select Service", desc: "Choose from 12+ categories like cleaning, AC repair, plumbing, or salon." },
-            { step: "02", title: "Pick Verified Pro", desc: "Compare provider ratings, transparent pricing, experience, and customer reviews." },
-            { step: "03", title: "Choose Time Slot", desc: "Select your preferred date and convenient time slot without double bookings." },
-            { step: "04", title: "Pay & Relax", desc: "Secure Razorpay payment with escrow release upon job completion." },
-          ].map((item) => (
-            <div key={item.step} className="p-6 rounded-3xl bg-surface-850/80 border border-white/5 relative">
-              <span className="text-3xl font-extrabold text-primary-500/40 block mb-3">{item.step}</span>
-              <h3 className="text-base font-bold text-white mb-2">{item.title}</h3>
-              <p className="text-xs text-gray-400 leading-relaxed">{item.desc}</p>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      {/* ═══ TRUST & SAFETY GUARANTEE ═══ */}
-      <section className="py-16 px-4 max-w-7xl mx-auto">
-        <div className="p-8 sm:p-12 rounded-3xl bg-gradient-to-r from-surface-850 via-surface-800 to-surface-850 border border-primary-500/20 shadow-2xl relative overflow-hidden">
-          <div className="grid lg:grid-cols-2 gap-8 items-center">
-            <div>
-              <span className="px-3 py-1 rounded-full text-xs font-bold bg-primary-500/20 text-primary-300 border border-primary-500/30 mb-4 inline-block">
-                🛡️ NexServe Promise
-              </span>
-              <h2 className="text-2xl sm:text-3xl font-extrabold text-white mb-4">
-                100% Quality & Safety Guarantee
-              </h2>
-              <p className="text-sm text-gray-300 mb-6 leading-relaxed">
-                Every technician and service provider undergoes strict background verification, identity checks, and skills evaluation before joining NexServe.
-              </p>
-
-              <div className="grid sm:grid-cols-2 gap-4 text-xs font-semibold text-gray-200">
-                <div className="flex items-center gap-2">
-                  <span className="text-emerald-400 text-base">✓</span> Background Checked
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-emerald-400 text-base">✓</span> Upfront Pricing
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-emerald-400 text-base">✓</span> Razorpay Escrow Protection
-                </div>
-                <div className="flex items-center gap-2">
-                  <span className="text-emerald-400 text-base">✓</span> 24/7 Customer Support
-                </div>
-              </div>
-            </div>
-
-            <div className="text-center lg:text-right">
-              <button
-                onClick={() => setShowEmergencyModal(true)}
-                className="px-8 py-4 rounded-2xl bg-gradient-to-r from-error-600 to-error-500 hover:from-error-500 hover:to-error-400 text-white font-bold text-sm shadow-xl shadow-error-500/25 inline-flex items-center gap-3"
-              >
-                <span>🚨</span> Need Urgent 24/7 Emergency Service?
-              </button>
-            </div>
+          {/* ═══ REFERRALS (signed-in customers) ═══ */}
+          <div className="container-page">
+            <ReferralCard />
           </div>
-        </div>
-      </section>
 
-      {/* Emergency Modal */}
-      {showEmergencyModal && (
-        <EmergencyBookingModal onClose={() => setShowEmergencyModal(false)} />
+          {/* ═══ FINAL CTA ═══ */}
+          <Section>
+            <Reveal>
+              <div className="relative overflow-hidden rounded-3xl border border-white/[0.08] bg-surface-900 px-6 py-14 sm:px-12 sm:py-20 text-center">
+                <div className="absolute inset-0 bg-grid opacity-60 [mask-image:radial-gradient(ellipse_60%_80%_at_50%_100%,black,transparent)]" aria-hidden="true" />
+                <div
+                  className="absolute left-1/2 bottom-0 -translate-x-1/2 translate-y-1/2 w-[720px] h-[360px] rounded-full bg-[radial-gradient(closest-side,rgb(97_80_226/0.35),transparent)] blur-2xl"
+                  aria-hidden="true"
+                />
+                <div className="relative max-w-2xl mx-auto">
+                  <h2 className="text-[32px] sm:text-5xl font-semibold text-white leading-[1.1]">
+                    Get it done this week.
+                  </h2>
+                  <p className="mt-4 text-base sm:text-lg text-ink-300">
+                    Book a verified professional or rent the gear you need — in a couple of minutes.
+                  </p>
+                  <div className="mt-8 flex flex-col sm:flex-row items-center justify-center gap-3">
+                    <ButtonLink to="/services" size="lg" iconRight={ArrowRight} className="w-full sm:w-auto">
+                      Book a service
+                    </ButtonLink>
+                    <ButtonLink to="/rentals" size="lg" variant="secondary" className="w-full sm:w-auto">
+                      Rent gear
+                    </ButtonLink>
+                  </div>
+                  <p className="mt-6 text-sm text-ink-400">
+                    Are you a professional?{" "}
+                    <Link to="/login" className="text-primary-300 hover:text-primary-200 font-medium">
+                      Join NexServe as a partner
+                    </Link>
+                  </p>
+                </div>
+              </div>
+            </Reveal>
+          </Section>
+        </>
       )}
 
-      {/* Booking Wizard Modal */}
+      <EmergencyBookingModal
+        open={showEmergencyModal}
+        onClose={() => setShowEmergencyModal(false)}
+        onSuccess={() => toast.success("Emergency request sent", "Track your technician from your dashboard.")}
+      />
+
       {wizardService && (
         <BookingWizardModal
           service={wizardService}

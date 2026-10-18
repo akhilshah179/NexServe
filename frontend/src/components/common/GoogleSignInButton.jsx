@@ -8,7 +8,7 @@
  */
 
 import { useEffect, useRef, useState } from "react";
-import { FiAlertCircle, FiRefreshCw } from "react-icons/fi";
+import { AlertCircle, RefreshCw, Loader2 } from "lucide-react";
 
 const GOOGLE_CLIENT_ID = import.meta.env.VITE_GOOGLE_CLIENT_ID || "";
 
@@ -45,11 +45,11 @@ export default function GoogleSignInButton({ onSuccess, onError }) {
 
         buttonRef.current.innerHTML = "";
         window.google.accounts.id.renderButton(buttonRef.current, {
-          theme: "filled_blue",
+          theme: "filled_black",
           size: "large",
-          width: 320,
+          width: 380,
           text: "continue_with",
-          shape: "pill",
+          shape: "rectangular",
         });
 
         setGoogleLoaded(true);
@@ -110,10 +110,10 @@ export default function GoogleSignInButton({ onSuccess, onError }) {
 
   if (!GOOGLE_CLIENT_ID) {
     return (
-      <div className="w-full p-4 rounded-xl bg-slate-800/80 border border-amber-500/30 text-center text-xs text-amber-300">
-        <p className="font-semibold mb-1">Google Client ID Missing</p>
-        <p className="text-slate-400">
-          Please check <code className="text-blue-400">VITE_GOOGLE_CLIENT_ID</code> in <code className="text-blue-400">.env</code>.
+      <div className="w-full p-4 rounded-xl bg-amber-500/[0.06] border border-amber-400/20 text-[13px] text-amber-200">
+        <p className="font-semibold">Google sign-in isn't configured</p>
+        <p className="text-ink-400 mt-0.5">
+          Set <code className="text-amber-200">VITE_GOOGLE_CLIENT_ID</code> in <code className="text-amber-200">.env</code>, or use a demo account below.
         </p>
       </div>
     );
@@ -121,28 +121,28 @@ export default function GoogleSignInButton({ onSuccess, onError }) {
 
   return (
     <div className="w-full flex flex-col items-center gap-3">
-      <div ref={buttonRef} className="w-full flex justify-center min-h-[44px]" />
+      <div ref={buttonRef} className="w-full flex justify-center min-h-[44px] [color-scheme:light]" />
 
       {!googleLoaded && !loadTimedOut && (
-        <div className="text-xs text-slate-400 flex items-center justify-center gap-2 py-2">
-          <div className="w-3.5 h-3.5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
-          <span>Connecting to Google Sign-In...</span>
+        <div className="text-[13px] text-ink-400 flex items-center justify-center gap-2" role="status">
+          <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />
+          Connecting to Google…
         </div>
       )}
 
       {loadTimedOut && !googleLoaded && (
-        <div className="w-full p-3 rounded-xl bg-slate-800/90 border border-slate-700 text-center text-xs space-y-2">
-          <div className="flex items-center justify-center gap-1.5 text-amber-400">
-            <FiAlertCircle />
-            <span>Google CDN taking longer to respond.</span>
-          </div>
+        <div className="w-full p-3.5 rounded-xl bg-white/[0.03] border border-white/[0.08] text-center text-[13px] space-y-2.5">
+          <p className="flex items-center justify-center gap-1.5 text-amber-300">
+            <AlertCircle className="w-4 h-4" aria-hidden="true" />
+            Google is taking longer than usual to respond.
+          </p>
           <button
             type="button"
             onClick={initGoogleSdk}
-            className="px-3 py-1.5 bg-blue-600/30 hover:bg-blue-600/50 text-blue-300 border border-blue-500/30 rounded-lg text-xs font-semibold inline-flex items-center gap-1.5"
+            className="inline-flex items-center gap-1.5 h-8 px-3 rounded-lg bg-white/[0.06] hover:bg-white/[0.1] text-ink-100 font-medium transition-colors"
           >
-            <FiRefreshCw className="w-3 h-3" />
-            <span>Retry Connection</span>
+            <RefreshCw className="w-3.5 h-3.5" aria-hidden="true" />
+            Retry
           </button>
         </div>
       )}

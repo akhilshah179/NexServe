@@ -1,32 +1,11 @@
-import React, { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef } from "react";
+import { AnimatePresence, motion } from "framer-motion";
 import { createBookingSocket } from "../../utils/websocket";
-import {
-  FiCheckCircle,
-  FiClock,
-  FiTruck,
-  FiTool,
-  FiCheck,
-  FiXCircle,
-  FiAlertCircle,
-  FiRadio,
-  FiChevronDown,
-  FiChevronUp,
-  FiMapPin,
-  FiCalendar,
-  FiUser,
-  FiPhone,
-  FiMessageSquare,
-  FiImage
-} from "react-icons/fi";
-import { cancelBookingApi, rescheduleBookingApi } from "../../api/bookingsApi";
-
-const STEPS = [
-  { key: "pending", label: "Requested", icon: FiClock, desc: "Awaiting provider confirmation" },
-  { key: "confirmed", label: "Confirmed", icon: FiCheckCircle, desc: "Provider accepted booking" },
-  { key: "provider_on_the_way", label: "On The Way", icon: FiTruck, desc: "Provider is en route to you" },
-  { key: "in_progress", label: "In Progress", icon: FiTool, desc: "Service is being performed" },
-  { key: "completed", label: "Completed", icon: FiCheck, desc: "Service completed successfully" },
-];
+import { XCircle, AlertCircle, ChevronDown, CalendarDays, Phone, ImageIcon, Wifi, WifiOff, Siren } from "lucide-react";
+import { cancelBookingApi } from "../../api/bookingsApi";
+import { ProgressStepper, Timeline, Avatar, Button, Modal, Field, Textarea, Alert, StatusBadge, KeyValue, cn } from "../ui";
+import { BOOKING_STEPS, humanize } from "../../lib/status";
+import { formatINRPrecise, formatWeekday, formatDate, formatTime } from "../../lib/format";
 
 export default function BookingLiveTracker({ booking, onStatusUpdate, onClose }) {
   const [currentBooking, setCurrentBooking] = useState(booking);
@@ -106,6 +85,8 @@ export default function BookingLiveTracker({ booking, onStatusUpdate, onClose })
   };
 
   const activeIndex = getStepIndex(rawStatus);
+  const live = connectionStatus === "connected";
+  const provider = currentBooking?.provider;
 
   const handleCancelBooking = async () => {
     if (!cancelReason.trim()) {
@@ -127,295 +108,188 @@ export default function BookingLiveTracker({ booking, onStatusUpdate, onClose })
   };
 
   return (
-    <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 text-white shadow-2xl relative overflow-hidden">
-      {/* Glow highlight */}
-      <div className="absolute -top-24 -right-24 w-60 h-60 bg-blue-600/10 rounded-full blur-3xl pointer-events-none" />
-
+    <div className="surface-raised overflow-hidden">
       {/* Header */}
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-800 pb-4 mb-6">
-        <div>
-          <div className="flex items-center gap-2">
-            <span className="text-xs uppercase tracking-wider text-blue-400 font-semibold">
-              Live Booking Tracker
-            </span>
-            <span className="flex items-center gap-1.5 bg-slate-800/80 px-2.5 py-0.5 rounded-full text-xs">
-              <span
-                className={`w-2 h-2 rounded-full ${
-                  connectionStatus === "connected"
-                    ? "bg-emerald-400 animate-pulse"
-                    : "bg-amber-400"
-                }`}
-              />
-              <span className="text-slate-300 capitalize text-[11px]">
-                {connectionStatus === "connected" ? "Live Updates" : connectionStatus}
-              </span>
-            </span>
-          </div>
-          <h3 className="text-xl font-bold mt-1 text-white">
-            {currentBooking?.service?.name || "Service Booking"} #{currentBooking?.id}
-          </h3>
-        </div>
-
-        <div className="text-right">
-          <div className="text-sm font-semibold text-slate-400">Total Amount</div>
-          <div className="text-2xl font-black text-emerald-400">
-            ₹{currentBooking?.total_amount}
-          </div>
-        </div>
-      </div>
-
-      {/* Cancelled or Rejected Banner */}
-      {isCancelled && (
-        <div className="mb-6 p-4 rounded-xl bg-red-500/10 border border-red-500/30 flex items-start gap-3">
-          <FiXCircle className="w-6 h-6 text-red-400 shrink-0 mt-0.5" />
-          <div>
-            <div className="font-semibold text-red-400">Booking Cancelled</div>
-            <div className="text-sm text-red-200/80 mt-0.5">
-              Reason: {currentBooking.cancellation_reason || "Cancelled by user/provider"}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {isRejected && (
-        <div className="mb-6 p-4 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-start gap-3">
-          <FiAlertCircle className="w-6 h-6 text-amber-400 shrink-0 mt-0.5" />
-          <div>
-            <div className="font-semibold text-amber-400">Booking Request Declined</div>
-            <div className="text-sm text-amber-200/80 mt-0.5">
-              The provider was unavailable for this time slot. You have not been charged.
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Stepper Timeline (if active or completed) */}
-      {!isCancelled && !isRejected && (
-        <div className="my-8 px-2">
-          <div className="relative">
-            {/* Progress line */}
-            <div className="absolute top-5 left-5 right-5 h-1 bg-slate-800 rounded-full">
-              <div
-                className="h-1 bg-gradient-to-r from-blue-500 to-emerald-400 transition-all duration-700 rounded-full"
-                style={{
-                  width: `${(Math.max(0, activeIndex) / (STEPS.length - 1)) * 100}%`,
-                }}
-              />
-            </div>
-
-            {/* Steps icons */}
-            <div className="relative flex justify-between">
-              {STEPS.map((step, idx) => {
-                const Icon = step.icon;
-                const isPassed = idx < activeIndex;
-                const isCurrent = idx === activeIndex;
-
-                let circleClass = "bg-slate-800 text-slate-500 border-slate-700";
-                if (isCurrent) {
-                  circleClass =
-                    "bg-blue-600 text-white border-blue-400 ring-4 ring-blue-500/20 shadow-lg shadow-blue-500/30 scale-110";
-                } else if (isPassed || isCompleted) {
-                  circleClass = "bg-emerald-500 text-white border-emerald-400 shadow-md shadow-emerald-500/20";
-                }
-
-                return (
-                  <div key={step.key} className="flex flex-col items-center text-center max-w-[90px]">
-                    <div
-                      className={`w-10 h-10 rounded-full border-2 flex items-center justify-center transition-all duration-500 z-10 ${circleClass}`}
-                    >
-                      <Icon className="w-4 h-4" />
-                    </div>
-                    <span
-                      className={`text-xs font-semibold mt-2 ${
-                        isCurrent
-                          ? "text-blue-400 font-bold"
-                          : isPassed || isCompleted
-                          ? "text-emerald-400"
-                          : "text-slate-500"
-                      }`}
-                    >
-                      {step.label}
-                    </span>
-                    <span className="text-[10px] text-slate-400 hidden sm:block mt-0.5 leading-tight">
-                      {step.desc}
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Details Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-6 bg-slate-800/40 p-4 rounded-xl border border-slate-800/80">
-        <div>
-          <div className="flex items-center gap-2 text-slate-400 text-xs mb-1">
-            <FiCalendar className="w-3.5 h-3.5 text-blue-400" />
-            <span>Scheduled Date & Time</span>
-          </div>
-          <div className="font-semibold text-slate-100 text-sm">
-            {currentBooking?.booking_date
-              ? new Date(currentBooking.booking_date).toLocaleDateString("en-IN", {
-                  weekday: "short",
-                  month: "short",
-                  day: "numeric",
-                  year: "numeric",
-                })
-              : "N/A"}{" "}
-            • {currentBooking?.time_slot}
-          </div>
-        </div>
-
-        {currentBooking?.provider && (
-          <div>
-            <div className="flex items-center gap-2 text-slate-400 text-xs mb-1">
-              <FiUser className="w-3.5 h-3.5 text-blue-400" />
-              <span>Assigned Service Provider</span>
-            </div>
-            <div className="font-semibold text-slate-100 text-sm flex items-center justify-between">
-              <span>{currentBooking.provider.full_name || currentBooking.provider.name}</span>
-              {currentBooking.provider.phone && (
-                <a
-                  href={`tel:${currentBooking.provider.phone}`}
-                  className="text-xs text-blue-400 hover:text-blue-300 flex items-center gap-1"
-                >
-                  <FiPhone className="w-3 h-3" /> Call
-                </a>
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* Attachments preview if available */}
-        {currentBooking?.attachments && currentBooking.attachments.length > 0 && (
-          <div className="md:col-span-2 pt-2 border-t border-slate-800/60">
-            <div className="flex items-center gap-1.5 text-slate-400 text-xs mb-2">
-              <FiImage className="w-3.5 h-3.5 text-blue-400" />
-              <span>Attached Problem Photos ({currentBooking.attachments.length})</span>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {currentBooking.attachments.map((att) => (
-                <a
-                  key={att.id}
-                  href={att.file_url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="group relative block w-16 h-16 rounded-lg overflow-hidden border border-slate-700 hover:border-blue-500 transition"
-                >
-                  <img
-                    src={att.file_url}
-                    alt={att.file_name || "Attachment"}
-                    className="w-full h-full object-cover group-hover:scale-110 transition duration-300"
-                  />
-                </a>
-              ))}
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* History Log Toggle */}
-      {currentBooking?.status_history && currentBooking.status_history.length > 0 && (
-        <div className="mt-4">
-          <button
-            onClick={() => setShowHistory(!showHistory)}
-            className="flex items-center gap-2 text-xs font-semibold text-slate-400 hover:text-slate-200 transition"
-          >
-            <span>Audit Trail & Activity Log ({currentBooking.status_history.length})</span>
-            {showHistory ? <FiChevronUp /> : <FiChevronDown />}
-          </button>
-
-          {showHistory && (
-            <div className="mt-3 space-y-2 max-h-48 overflow-y-auto pr-1">
-              {currentBooking.status_history.map((hist) => (
-                <div
-                  key={hist.id}
-                  className="bg-slate-800/60 p-2.5 rounded-lg border border-slate-700/50 text-xs flex items-center justify-between"
-                >
-                  <div>
-                    <span className="font-semibold text-slate-200 capitalize">
-                      {hist.to_status?.replace(/_/g, " ")}
-                    </span>
-                    {hist.notes && <span className="text-slate-400 ml-2">— {hist.notes}</span>}
-                  </div>
-                  <span className="text-slate-500 text-[11px]">
-                    {new Date(hist.created_at).toLocaleTimeString("en-IN", {
-                      hour: "2-digit",
-                      minute: "2-digit",
-                      month: "short",
-                      day: "numeric",
-                    })}
-                  </span>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Action Footer (Cancel / Close) */}
-      <div className="mt-6 pt-4 border-t border-slate-800 flex items-center justify-between">
-        {!isCancelled && !isRejected && !isCompleted && (
-          <button
-            onClick={() => setShowCancelModal(true)}
-            className="text-xs text-red-400 hover:text-red-300 font-semibold hover:underline"
-          >
-            Cancel Booking
-          </button>
-        )}
-        <div className="ml-auto flex items-center gap-3">
-          {onClose && (
-            <button
-              onClick={onClose}
-              className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold rounded-lg transition"
+      <div className="p-5 sm:p-6 flex flex-wrap items-start justify-between gap-4 border-b border-white/[0.06]">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <StatusBadge status={rawStatus} live={rawStatus === "in_progress" || rawStatus === "provider_on_the_way"} />
+            <span
+              className={cn("inline-flex items-center gap-1.5 text-xs", live ? "text-emerald-300" : "text-ink-500")}
+              title={live ? "Receiving live updates" : `Live updates ${connectionStatus}`}
             >
-              Close
-            </button>
-          )}
+              {live ? <Wifi className="w-3.5 h-3.5" aria-hidden="true" /> : <WifiOff className="w-3.5 h-3.5" aria-hidden="true" />}
+              {live ? "Live" : connectionStatus === "connecting" ? "Connecting…" : "Offline"}
+            </span>
+            {currentBooking?.is_emergency && (
+              <span className="inline-flex items-center gap-1 text-xs text-rose-300">
+                <Siren className="w-3.5 h-3.5" aria-hidden="true" /> Emergency
+              </span>
+            )}
+          </div>
+          <h3 className="mt-2 text-lg font-semibold text-white truncate">
+            {currentBooking?.service?.name || currentBooking?.service?.title || "Service booking"}
+          </h3>
+          <p className="text-xs text-ink-500">Booking #{currentBooking?.id}</p>
+        </div>
+        <div className="text-right">
+          <p className="text-xs text-ink-400">Total</p>
+          <p className="text-xl font-semibold text-white tabular font-heading">{formatINRPrecise(currentBooking?.total_amount ?? 0)}</p>
         </div>
       </div>
 
-      {/* Cancel Modal */}
-      {showCancelModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm">
-          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 max-w-md w-full text-white shadow-2xl">
-            <h4 className="text-lg font-bold text-red-400 flex items-center gap-2">
-              <FiXCircle /> Cancel Booking
-            </h4>
-            <p className="text-xs text-slate-300 mt-2">
-              Are you sure you want to cancel this booking? Please provide a reason below.
-            </p>
+      <div className="p-5 sm:p-6 space-y-6">
+        {isCancelled && (
+          <Alert tone="error" icon={XCircle} title="Booking cancelled">
+            {currentBooking.cancellation_reason || "This booking was cancelled."}
+          </Alert>
+        )}
+        {isRejected && (
+          <Alert tone="warning" icon={AlertCircle} title="Request declined">
+            The professional wasn't available for this slot. You haven't been charged.
+          </Alert>
+        )}
 
-            <textarea
+        {!isCancelled && !isRejected && (
+          <div className="overflow-x-auto scrollbar-none -mx-1 px-1">
+            <ProgressStepper
+              className="min-w-[440px]"
+              steps={BOOKING_STEPS}
+              current={isCompleted ? BOOKING_STEPS.length : Math.max(0, activeIndex)}
+            />
+          </div>
+        )}
+
+        <dl className="grid sm:grid-cols-2 gap-4 surface-inset p-4">
+          <KeyValue
+            icon={CalendarDays}
+            label="Scheduled"
+            value={
+              currentBooking?.booking_date
+                ? `${formatWeekday(currentBooking.booking_date)} · ${currentBooking?.time_slot || ""}`
+                : "Not scheduled"
+            }
+          />
+          {provider && (
+            <div className="min-w-0">
+              <dt className="text-xs text-ink-400">Professional</dt>
+              <dd className="mt-1 flex items-center gap-2">
+                <Avatar src={provider.profile_image} name={provider.full_name || provider.name || "Pro"} size="xs" />
+                <span className="text-sm font-medium text-ink-50 truncate">{provider.full_name || provider.name}</span>
+                {(provider.phone || provider.phone_number) && (
+                  <a
+                    href={`tel:${provider.phone || provider.phone_number}`}
+                    className="ml-auto inline-flex items-center gap-1 h-7 px-2.5 rounded-lg text-xs font-medium text-primary-200 bg-primary-500/12 hover:bg-primary-500/20 transition-colors"
+                  >
+                    <Phone className="w-3 h-3" aria-hidden="true" /> Call
+                  </a>
+                )}
+              </dd>
+            </div>
+          )}
+          {currentBooking?.attachments?.length > 0 && (
+            <div className="sm:col-span-2">
+              <dt className="text-xs text-ink-400 flex items-center gap-1.5">
+                <ImageIcon className="w-3.5 h-3.5" aria-hidden="true" />
+                Photos ({currentBooking.attachments.length})
+              </dt>
+              <dd className="mt-2 flex flex-wrap gap-2">
+                {currentBooking.attachments.map((att) => (
+                  <a
+                    key={att.id}
+                    href={att.file_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="group block w-16 h-16 rounded-lg overflow-hidden ring-1 ring-white/10 hover:ring-primary-400/60 transition"
+                  >
+                    <img src={att.file_url} alt={att.file_name || "Attachment"} className="w-full h-full object-cover group-hover:scale-110 transition duration-300" />
+                  </a>
+                ))}
+              </dd>
+            </div>
+          )}
+        </dl>
+
+        {currentBooking?.status_history?.length > 0 && (
+          <div>
+            <button
+              type="button"
+              onClick={() => setShowHistory(!showHistory)}
+              aria-expanded={showHistory}
+              className="flex items-center gap-1.5 text-sm font-medium text-ink-300 hover:text-white transition-colors"
+            >
+              Activity ({currentBooking.status_history.length})
+              <ChevronDown className={cn("w-4 h-4 transition-transform duration-200", showHistory && "rotate-180")} aria-hidden="true" />
+            </button>
+            <AnimatePresence initial={false}>
+              {showHistory && (
+                <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} className="overflow-hidden">
+                  <Timeline
+                    className="pt-4"
+                    current={currentBooking.status_history.length}
+                    items={currentBooking.status_history.map((h) => ({
+                      label: humanize(h.to_status),
+                      desc: h.notes || undefined,
+                      time: `${formatDate(h.created_at)} · ${formatTime(h.created_at)}`,
+                    }))}
+                  />
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+        )}
+      </div>
+
+      {((!isCancelled && !isRejected && !isCompleted) || onClose) && (
+        <div className="px-5 sm:px-6 py-4 border-t border-white/[0.06] flex items-center justify-between gap-3">
+          {!isCancelled && !isRejected && !isCompleted ? (
+            <Button variant="danger-ghost" size="sm" onClick={() => setShowCancelModal(true)}>
+              Cancel booking
+            </Button>
+          ) : (
+            <span />
+          )}
+          {onClose && (
+            <Button variant="secondary" size="sm" onClick={onClose}>
+              Close
+            </Button>
+          )}
+        </div>
+      )}
+
+      <Modal
+        open={showCancelModal}
+        onClose={() => !cancelling && setShowCancelModal(false)}
+        size="sm"
+        icon={XCircle}
+        iconTone="text-rose-300 bg-rose-500/12"
+        title="Cancel this booking?"
+        description="Your professional will be notified straight away."
+        footer={
+          <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2">
+            <Button variant="secondary" onClick={() => setShowCancelModal(false)} disabled={cancelling}>
+              Keep booking
+            </Button>
+            <Button variant="danger" onClick={handleCancelBooking} loading={cancelling} loadingText="Cancelling">
+              Cancel booking
+            </Button>
+          </div>
+        }
+      >
+        <div className="space-y-4">
+          <Field label="Reason" required error={errorMsg || undefined}>
+            <Textarea
               rows={3}
               value={cancelReason}
-              onChange={(e) => setCancelReason(e.target.value)}
-              placeholder="e.g., Change of plans, booked by mistake, etc."
-              className="w-full mt-3 p-3 bg-slate-800 border border-slate-700 rounded-xl text-sm text-white placeholder-slate-500 focus:outline-none focus:border-red-500"
+              onChange={(e) => {
+                setCancelReason(e.target.value);
+                setErrorMsg("");
+              }}
+              placeholder="e.g. Change of plans, booked by mistake"
             />
-
-            {errorMsg && <p className="text-xs text-red-400 mt-2">{errorMsg}</p>}
-
-            <div className="flex items-center justify-end gap-3 mt-4">
-              <button
-                onClick={() => setShowCancelModal(false)}
-                disabled={cancelling}
-                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-semibold rounded-lg"
-              >
-                Go Back
-              </button>
-              <button
-                onClick={handleCancelBooking}
-                disabled={cancelling}
-                className="px-4 py-2 bg-red-600 hover:bg-red-500 text-white text-xs font-semibold rounded-lg shadow-lg shadow-red-600/30 transition disabled:opacity-50"
-              >
-                {cancelling ? "Cancelling..." : "Confirm Cancellation"}
-              </button>
-            </div>
-          </div>
+          </Field>
         </div>
-      )}
+      </Modal>
     </div>
   );
 }

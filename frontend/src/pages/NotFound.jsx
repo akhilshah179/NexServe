@@ -1,39 +1,39 @@
-/**
- * NotFound (404) Page — shown when a URL doesn't match any route.
- *
- * WHY this matters:
- * - Without a catch-all route, unmatched URLs render a blank page
- * - This gives users a clear message and a way back to safety
- * - Important for both UX and SEO
- */
-
-import { Link } from "react-router-dom";
+import { motion } from "framer-motion";
+import { Home, Compass, Package } from "lucide-react";
+import { ButtonLink } from "../components/ui";
+import { ease } from "../lib/motion";
 
 export default function NotFound() {
   return (
-    <div className="min-h-[70vh] flex items-center justify-center px-4">
-      <div className="text-center animate-slide-up">
-        <p className="text-8xl font-extrabold bg-gradient-to-r from-primary-400 to-accent-400 bg-clip-text text-transparent mb-4">
+    <div className="relative min-h-[80vh] flex items-center justify-center px-4 pt-24 pb-16 overflow-hidden">
+      <div className="absolute inset-0 -z-10 bg-grid opacity-60 [mask-image:radial-gradient(ellipse_50%_50%_at_50%_45%,black,transparent)]" aria-hidden="true" />
+      <div className="text-center max-w-lg">
+        <motion.p
+          initial={{ opacity: 0, scale: 0.9, filter: "blur(8px)" }}
+          animate={{ opacity: 1, scale: 1, filter: "blur(0px)" }}
+          transition={{ duration: 0.6, ease: ease.out }}
+          className="text-[120px] sm:text-[160px] leading-none font-semibold font-heading text-gradient tracking-tighter"
+          aria-hidden="true"
+        >
           404
-        </p>
-        <h1 className="text-2xl sm:text-3xl font-bold text-white mb-3">Page Not Found</h1>
-        <p className="text-gray-400 mb-8 max-w-md mx-auto">
-          The page you're looking for doesn't exist or has been moved.
-        </p>
-        <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
-          <Link
-            to="/"
-            className="px-8 py-3 text-sm font-semibold text-white bg-gradient-to-r from-primary-600 to-primary-500 rounded-xl hover:from-primary-500 hover:to-primary-400 shadow-lg shadow-primary-500/25 hover:shadow-primary-500/40 transition-all duration-300 hover:-translate-y-0.5"
-          >
-            Go Home
-          </Link>
-          <Link
-            to="/services"
-            className="px-8 py-3 text-sm font-semibold text-gray-300 bg-surface-700/50 border border-white/10 rounded-xl hover:bg-surface-600/50 hover:text-white transition-all duration-300"
-          >
-            Browse Services
-          </Link>
-        </div>
+        </motion.p>
+        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15, duration: 0.45, ease: ease.out }}>
+          <h1 className="mt-2 text-2xl sm:text-3xl font-semibold text-white">This page took the day off</h1>
+          <p className="mt-3 text-ink-400 leading-relaxed">
+            The page you're looking for may have moved or no longer exists. Let's get you somewhere useful.
+          </p>
+          <div className="mt-8 flex flex-col sm:flex-row items-center justify-center gap-2.5">
+            <ButtonLink to="/" icon={Home} className="w-full sm:w-auto">
+              Back home
+            </ButtonLink>
+            <ButtonLink to="/services" variant="secondary" icon={Compass} className="w-full sm:w-auto">
+              Explore services
+            </ButtonLink>
+            <ButtonLink to="/rentals" variant="ghost" icon={Package} className="w-full sm:w-auto">
+              Browse rentals
+            </ButtonLink>
+          </div>
+        </motion.div>
       </div>
     </div>
   );

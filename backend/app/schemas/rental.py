@@ -16,6 +16,7 @@ from app.schemas.address import AddressResponse
 
 
 # ── Rental Category Schemas ──────────────────────────────
+# ── Rental Category Schemas ──────────────────────────────
 class RentalCategoryBase(BaseModel):
     name: str
     slug: Optional[str] = None
@@ -53,6 +54,47 @@ class RentalImageResponse(RentalImageBase):
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+
+# ── Rental Review Schemas (Defined early for nested references) ──
+class RentalReviewBase(BaseModel):
+    rating: float = Field(..., ge=1, le=5)
+    comment: Optional[str] = None
+
+
+class RentalReviewCreate(BaseModel):
+    rating: float = Field(..., ge=1, le=5)
+    comment: Optional[str] = None
+
+
+class RentalReviewResponse(BaseModel):
+    id: int
+    rental_item_id: Optional[int] = None
+    rental_booking_id: Optional[int] = None
+    customer_id: Optional[int] = None
+    user_id: Optional[int] = None
+    rating: float
+    comment: Optional[str] = None
+    provider_reply: Optional[str] = None
+    provider_replied_at: Optional[datetime] = None
+    created_at: datetime
+    updated_at: Optional[datetime] = None
+    customer: Optional[UserResponse] = None
+    user: Optional[UserResponse] = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+    @model_validator(mode="after")
+    def populate_user(self) -> "RentalReviewResponse":
+        if self.user_id is None and self.customer_id is not None:
+            self.user_id = self.customer_id
+        if self.customer_id is None and self.user_id is not None:
+            self.customer_id = self.user_id
+        if self.user is None and self.customer is not None:
+            self.user = self.customer
+        if self.customer is None and self.user is not None:
+            self.customer = self.user
+        return self
 
 
 # ── Rental Item Schemas ──────────────────────────────────
@@ -158,7 +200,7 @@ class RentalItemResponse(BaseModel):
     category: Optional[RentalCategoryResponse] = None
     provider: Optional[UserResponse] = None
     images: List[RentalImageResponse] = []
-    reviews: Optional[List[Any]] = []
+    reviews: List[RentalReviewResponse] = []
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -267,26 +309,52 @@ class RentalBookingStatusHistoryResponse(BaseModel):
 class SecurityDepositResponse(BaseModel):
     id: int
     rental_booking_id: int
-    amount: float
-    status: str
-    refund_amount: Optional[float] = None
-    deduction_amount: Optional[float] = None
+    deposit_amount: Optional[float] = None
+    amount: Optional[float] = None
+    status: Any
+    refund_amount: Optional[float] = 0.0
+    deducted_amount: Optional[float] = 0.0
+    deduction_amount: Optional[float] = 0.0
+    notes: Optional[str] = None
     created_at: datetime
     refunded_at: Optional[datetime] = None
 
     model_config = ConfigDict(from_attributes=True)
 
+    @model_validator(mode="after")
+    def populate_deposit_aliases(self) -> "SecurityDepositResponse":
+        if self.amount is None and self.deposit_amount is not None:
+            self.amount = self.deposit_amount
+        if self.deposit_amount is None and self.amount is not None:
+            self.deposit_amount = self.amount
+        if self.deduction_amount is None and self.deducted_amount is not None:
+            self.deduction_amount = self.deducted_amount
+        return self
+
 
 class RentalReturnResponse(BaseModel):
     id: int
     rental_booking_id: int
-    item_condition: str
-    is_damaged: bool
-    damage_deduction_amount: float
+    inspected_by_id: Optional[int] = None
+    condition_on_return: Optional[str] = None
+    item_condition: Optional[str] = None
+    is_damaged: bool = False
+    damage_deduction_amount: float = 0.0
     inspection_notes: Optional[str] = None
-    returned_at: datetime
+    return_date: Optional[datetime] = None
+    returned_at: Optional[datetime] = None
 
     model_config = ConfigDict(from_attributes=True)
+
+    @model_validator(mode="after")
+    def populate_return_aliases(self) -> "RentalReturnResponse":
+        if not self.item_condition and self.condition_on_return:
+            self.item_condition = self.condition_on_return
+        if not self.condition_on_return and self.item_condition:
+            self.condition_on_return = self.item_condition
+        if not self.returned_at and self.return_date:
+            self.returned_at = self.return_date
+        return self
 
 
 class RentalBookingResponse(BaseModel):
@@ -354,30 +422,20 @@ class DamageClaimReviewRequest(BaseModel):
 class DamageClaimResponse(BaseModel):
     id: int
     rental_booking_id: int
-    damage_description: str
-    estimated_repair_cost: float
-    status: str
+    provider_id: Optional[int] = None
+    customer_id: Optional[int] = None
+    claimed_amount: Optional[float] = None
+    estimated_repair_cost: Optional[float] = None
+    approved_amount: Optional[float] = None
     approved_deduction_amount: Optional[float] = None
+    status: Any
+    description: Optional[str] = None
+    damage_description: Optional[str] = None
+    photo_urls: Optional[str] = None
     admin_notes: Optional[str] = None
     created_at: datetime
+    resolved_at: Optional[datetime] = None
     reviewed_at: Optional[datetime] = None
 
     model_config = ConfigDict(from_attributes=True)
 
-
-# ── Review Schemas ───────────────────────────────────────
-class RentalReviewCreate(BaseModel):
-    rating: int = Field(..., ge=1, le=5)
-    comment: str
-
-
-class RentalReviewResponse(BaseModel):
-    id: int
-    rental_item_id: int
-    user_id: int
-    rating: int
-    comment: str
-    created_at: datetime
-    user: Optional[UserResponse] = None
-
-    model_config = ConfigDict(from_attributes=True)

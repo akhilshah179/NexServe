@@ -1,20 +1,12 @@
 /**
  * Dashboard.jsx — Personal Consumer Dashboard for Customers.
- *
- * Upgraded Features:
- * - Real-Time Booking Tracking via WebSocket with Live Status Timeline
- * - Refer & Earn Rewards Card (Give ₹100, Get ₹100)
- * - AI-Driven Smart Recommendation Feeds (Modular carousels)
- * - Personalized greeting banner with spending metrics
- * - Recent Bookings ledger with Pay Now, Chat, Reschedule, Cancel, and Review
- * - Address Manager integration
  */
 
 import { useState, useEffect } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import { useNotifications } from "../context/NotificationContext";
-import { getMyBookings, cancelBookingApi, rescheduleBookingApi } from "../api/bookingsApi";
+import { getMyBookings } from "../api/bookingsApi";
 import { getCategories } from "../api/servicesApi";
 import { initiateRazorpayCheckout } from "../utils/razorpay";
 import AddressManager from "../components/addresses/AddressManager";
@@ -24,7 +16,40 @@ import BookingLiveTracker from "../components/booking/BookingLiveTracker";
 import ReferralCard from "../components/referrals/ReferralCard";
 import RecommendationSection from "../components/recommendations/RecommendationSection";
 import BookingWizardModal from "../components/booking/BookingWizardModal";
-import { FiClock, FiCalendar, FiCreditCard, FiMessageSquare, FiStar, FiChevronRight } from "react-icons/fi";
+import {
+  CalendarClock,
+  MessageSquare,
+  Star,
+  Receipt,
+  Wallet,
+  Package,
+  ArrowRight,
+  Activity,
+  CreditCard,
+  Plus,
+  Radio,
+} from "lucide-react";
+import CategoryCard from "../components/cards/CategoryCard";
+import {
+  Avatar,
+  Button,
+  ButtonLink,
+  StatCard,
+  StatusBadge,
+  SearchBar,
+  Modal,
+  EmptyState,
+  ErrorState,
+  Skeleton,
+  Reveal,
+  Stagger,
+  StaggerItem,
+  useToast,
+  cn,
+} from "../components/ui";
+import { BOOKING_GROUPS } from "../lib/status";
+import { serviceVisual } from "../lib/visuals";
+import { formatINR, formatDate } from "../lib/format";
 
 export default function Dashboard() {
   const { user } = useAuth();
@@ -35,14 +60,14 @@ export default function Dashboard() {
   const [actionLoading, setActionLoading] = useState(null);
   const [searchQuery, setSearchQuery] = useState("");
   const navigate = useNavigate();
+  const { toast } = useToast();
+  const [loadError, setLoadError] = useState(false);
 
   // Active Modals
   const [selectedAddress, setSelectedAddress] = useState(null);
   const [chatBooking, setChatBooking] = useState(null);
   const [reviewBooking, setReviewBooking] = useState(null);
   const [wizardService, setWizardService] = useState(null);
-
-  // Active spotlight booking tracking modal or view
   const [trackedBooking, setTrackedBooking] = useState(null);
 
   const loadData = async () => {
@@ -53,8 +78,10 @@ export default function Dashboard() {
       ]);
       setBookings(bookingsData || []);
       setCategories(catData || []);
+      setLoadError(false);
     } catch (err) {
       console.warn("Failed to load customer dashboard data:", err);
+      setLoadError(true);
     } finally {
       setLoading(false);
     }
@@ -70,14 +97,20 @@ export default function Dashboard() {
       setBookings((prev) => {
         const exists = prev.some((b) => b.id === lastEvent.booking.id);
         if (exists) {
-          return prev.map((b) => (b.id === lastEvent.booking.id ? { ...b, ...lastEvent.booking } : b));
+          return prev.map((b) =>
+            b.id === lastEvent.booking.id ? { ...b, ...lastEvent.booking } : b
+          );
         } else {
           return [lastEvent.booking, ...prev];
         }
       });
     } else if (lastEvent?.booking_id && lastEvent?.status) {
       setBookings((prev) =>
-        prev.map((b) => (b.id === lastEvent.booking_id ? { ...b, status: lastEvent.status, notes: lastEvent.notes || b.notes } : b))
+        prev.map((b) =>
+          b.id === lastEvent.booking_id
+            ? { ...b, status: lastEvent.status, notes: lastEvent.notes || b.notes }
+            : b
+        )
       );
     }
   }, [lastEvent]);
@@ -92,10 +125,10 @@ export default function Dashboard() {
           prev.map((b) => (b.id === booking.id ? { ...b, status: "confirmed" } : b))
         );
         setActionLoading(null);
-        alert("Payment verified! Booking confirmed.");
+        toast.success("Payment received", "Your booking is confirmed.");
       },
       onError: (errMsg) => {
-        alert(errMsg || "Payment process cancelled.");
+        toast.error("Payment not completed", errMsg || "Payment process cancelled.");
         setActionLoading(null);
       },
     });
@@ -107,275 +140,209 @@ export default function Dashboard() {
     );
   };
 
-  // Metrics calculation
   const totalSpent = bookings
     .filter((b) => b.status === "completed" || b.status === "confirmed")
-    .reduce((sum, b) => sum + (b.total_amount || 0), 0);
+    .reduce((sum, b) => sum + (Number(b.total_amount) || 0), 0);
 
   const activeBooking = bookings.find((b) =>
     ["pending", "requested", "confirmed", "provider_on_the_way", "in_progress"].includes(b.status)
   );
 
+  const hour = new Date().getHours();
+  const greeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
+  const firstName = user?.full_name?.split(" ")[0] || "there";
+  const activeCount = bookings.filter((b) => BOOKING_GROUPS.upcoming.includes(b.status)).length;
+  const completedCount = bookings.filter((b) => b.status === "completed").length;
+  const recent = bookings.slice(0, 5);
+
   return (
-    <div className="min-h-screen pt-24 pb-16 px-4 max-w-7xl mx-auto space-y-10">
-      {/* ═══ PERSONAL GREETING BANNER ═══ */}
-      <div className="p-8 rounded-3xl bg-slate-900 border border-slate-800 shadow-2xl relative overflow-hidden">
-        <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
-          <div className="flex items-center gap-4">
-            {user?.profile_image ? (
-              <img
-                src={user.profile_image}
-                alt={user.full_name}
-                className="w-16 h-16 rounded-2xl object-cover ring-2 ring-blue-500/40 shadow-lg"
-              />
-            ) : (
-              <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-blue-600 to-indigo-600 flex items-center justify-center text-white font-extrabold text-2xl shadow-lg">
-                {user?.full_name?.charAt(0) || "U"}
+    <div className="pb-24">
+      {/* Greeting */}
+      <header className="relative pt-28 sm:pt-32 pb-8">
+        <div className="pointer-events-none absolute inset-x-0 top-0 h-72 -z-10 bg-[radial-gradient(60%_100%_at_30%_0%,rgb(116_104_240/0.14),transparent)]" aria-hidden="true" />
+        <div className="container-page">
+          <Reveal y={12} className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+            <div className="flex items-center gap-4 min-w-0">
+              <Avatar src={user?.profile_image} name={user?.full_name || "You"} size="xl" />
+              <div className="min-w-0">
+                <p className="text-sm text-ink-400">{greeting}</p>
+                <h1 className="text-3xl sm:text-4xl font-semibold text-white truncate">{firstName}</h1>
+                <p className="text-sm text-ink-500 truncate">{user?.email}</p>
               </div>
-            )}
-
-            <div>
-              <div className="flex items-center gap-2 flex-wrap">
-                <h1 className="text-2xl font-extrabold text-white">
-                  Welcome back, {user?.full_name?.split(" ")[0]}! 👋
-                </h1>
-                <span className="px-2.5 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wider bg-blue-500/20 text-blue-300 border border-blue-500/30">
-                  {user?.role}
-                </span>
-              </div>
-              <p className="text-xs text-slate-400 mt-1">{user?.email}</p>
             </div>
+            <div className="flex flex-wrap gap-2.5">
+              <ButtonLink to="/services" icon={Plus}>
+                Book a service
+              </ButtonLink>
+              <ButtonLink to="/rentals" variant="secondary" icon={Package}>
+                Rent gear
+              </ButtonLink>
+            </div>
+          </Reveal>
+
+          <div className="mt-8 grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+            <StatCard label="Total bookings" value={loading ? "—" : bookings.length} icon={Receipt} tone="indigo" />
+            <StatCard label="Upcoming & active" value={loading ? "—" : activeCount} icon={CalendarClock} tone="blue" />
+            <StatCard label="Completed" value={loading ? "—" : completedCount} icon={Star} tone="emerald" />
+            <StatCard label="Total spent" value={loading ? "—" : totalSpent} format={(n) => formatINR(n)} icon={Wallet} tone="amber" />
           </div>
 
-          {/* Key Metrics Pills */}
-          <div className="flex items-center gap-4 p-3 rounded-2xl bg-slate-850 border border-slate-700/80 text-xs">
-            <div>
-              <span className="text-[10px] text-slate-400 uppercase font-bold block">Total Bookings</span>
-              <span className="text-base font-extrabold text-white">{bookings.length}</span>
-            </div>
-            <div className="border-l border-slate-700 pl-4">
-              <span className="text-[10px] text-slate-400 uppercase font-bold block">Total Spent</span>
-              <span className="text-base font-extrabold text-emerald-400">₹{Math.round(totalSpent)}</span>
-            </div>
-          </div>
-        </div>
-
-        {/* Quick Search Service Input */}
-        <div className="mt-6 pt-6 border-t border-slate-800">
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              if (searchQuery.trim()) {
-                navigate(`/services?search=${encodeURIComponent(searchQuery.trim())}`);
-              }
-            }}
-            className="flex items-center gap-2 max-w-xl"
-          >
-            <div className="relative flex-1">
-              <input
-                type="text"
-                placeholder="What service do you need today?"
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-9 pr-4 py-2.5 rounded-xl bg-slate-800 border border-slate-700 text-xs text-white placeholder-slate-400 outline-none focus:border-blue-500"
-              />
-              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">🔍</span>
-            </div>
-            <button
-              type="submit"
-              className="px-4 py-2.5 rounded-xl bg-blue-600 text-white font-bold text-xs shadow hover:bg-blue-500 transition"
-            >
-              Search
-            </button>
-          </form>
-        </div>
-      </div>
-
-      {/* ═══ REAL-TIME SPOTLIGHT ACTIVE BOOKING TRACKER ═══ */}
-      {activeBooking && (
-        <div className="space-y-3">
-          <div className="flex items-center justify-between">
-            <h2 className="text-lg font-bold text-white flex items-center gap-2">
-              <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping" />
-              <span>Active Service Live Tracker</span>
-            </h2>
-          </div>
-          <BookingLiveTracker
-            booking={activeBooking}
-            onStatusUpdate={handleStatusUpdate}
+          <SearchBar
+            className="mt-6 max-w-2xl"
+            value={searchQuery}
+            onChange={setSearchQuery}
+            submitLabel="Search"
+            placeholder="What do you need done today?"
+            ariaLabel="Search services"
+            onSubmit={(q) => q.trim() && navigate(`/services?search=${encodeURIComponent(q.trim())}`)}
           />
         </div>
-      )}
+      </header>
 
-      {/* ═══ REFER & EARN REWARDS CARD ═══ */}
-      <ReferralCard />
+      <div className="container-page space-y-12">
+        {loadError && (
+          <ErrorState title="Your dashboard didn't fully load" onRetry={() => { setLoading(true); loadData(); }} />
+        )}
 
-      {/* ═══ AI SMART RECOMMENDATIONS ═══ */}
-      <RecommendationSection
-        onSelectService={(svc) => setWizardService(svc)}
-      />
-
-      {/* ═══ EXPLORE CATEGORIES QUICK ACCESS ═══ */}
-      {categories.length > 0 && (
-        <div className="p-6 sm:p-8 rounded-3xl bg-slate-900 border border-slate-800 shadow-xl space-y-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <h2 className="text-lg font-bold text-white">Book by Category</h2>
-              <p className="text-xs text-slate-400">Discover verified home services and instant booking</p>
+        {/* Live tracker */}
+        {activeBooking && (
+          <section aria-labelledby="live-h">
+            <div className="flex items-center gap-2 mb-4">
+              <Radio className="w-4 h-4 text-emerald-300" aria-hidden="true" />
+              <h2 id="live-h" className="text-lg font-semibold text-white">Happening now</h2>
             </div>
-            <Link
-              to="/services"
-              className="text-xs font-bold text-blue-400 hover:text-blue-300 flex items-center gap-1"
-            >
-              Explore All Categories →
-            </Link>
-          </div>
+            <BookingLiveTracker booking={activeBooking} onStatusUpdate={handleStatusUpdate} />
+          </section>
+        )}
 
-          <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
-            {categories.slice(0, 10).map((cat) => (
-              <Link
-                key={cat.id}
-                to={`/services?category=${cat.id}`}
-                className="p-3.5 rounded-2xl bg-slate-800/80 border border-slate-700/50 hover:border-blue-500/50 hover:bg-slate-750 transition-all flex flex-col items-center text-center group"
-              >
-                <span className="text-2xl mb-1.5 group-hover:scale-110 transition-transform">
-                  {cat.icon_url || "✨"}
-                </span>
-                <span className="text-xs font-bold text-slate-200 group-hover:text-blue-400 transition-colors line-clamp-1">
-                  {cat.name}
-                </span>
-              </Link>
-            ))}
+        {/* Recent bookings */}
+        <section aria-labelledby="recent-h">
+          <div className="flex items-end justify-between gap-3 mb-4">
+            <h2 id="recent-h" className="text-lg font-semibold text-white">Recent bookings</h2>
+            <ButtonLink to="/history" variant="ghost" size="sm" iconRight={ArrowRight}>
+              All history
+            </ButtonLink>
           </div>
-        </div>
-      )}
-
-      {/* ═══ SAVED ADDRESSES ═══ */}
-      <AddressManager
-        selectedAddressId={selectedAddress?.id}
-        onSelectAddress={(addr) => setSelectedAddress(addr)}
-      />
-
-      {/* ═══ RECENT BOOKINGS TABLE ═══ */}
-      <div className="p-8 rounded-3xl bg-slate-900 border border-slate-800 shadow-2xl">
-        <div className="flex items-center justify-between mb-6">
-          <h2 className="text-lg font-bold text-white">Recent Service Bookings</h2>
-          <Link to="/history" className="text-xs font-bold text-blue-400 hover:underline">
-            View Complete Service History →
-          </Link>
-        </div>
-
-        {loading ? (
-          <div className="py-12 text-center text-xs text-slate-400 animate-pulse">
-            Loading your bookings...
-          </div>
-        ) : bookings.length === 0 ? (
-          <div className="py-12 text-center text-slate-400 text-xs">
-            <p className="text-sm font-semibold mb-2">No service bookings placed yet.</p>
-            <Link to="/services" className="text-blue-400 font-bold hover:underline">
-              Explore Available Services →
-            </Link>
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs text-slate-300">
-              <thead className="uppercase tracking-wider bg-slate-800 text-slate-400 border-b border-slate-700">
-                <tr>
-                  <th className="px-4 py-3">ID</th>
-                  <th className="px-4 py-3">Service</th>
-                  <th className="px-4 py-3">Provider</th>
-                  <th className="px-4 py-3">Date & Slot</th>
-                  <th className="px-4 py-3">Amount</th>
-                  <th className="px-4 py-3">Status</th>
-                  <th className="px-4 py-3 text-right">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-800">
-                {bookings.slice(0, 5).map((b) => (
-                  <tr key={b.id} className="hover:bg-slate-800/50 transition-colors">
-                    <td className="px-4 py-4 font-bold text-white">#{b.id}</td>
-                    <td className="px-4 py-4 font-semibold text-white">{b.service?.name || b.service?.title}</td>
-                    <td className="px-4 py-4">{b.provider?.full_name}</td>
-                    <td className="px-4 py-4">
-                      <div>{new Date(b.booking_date).toLocaleDateString()}</div>
-                      <div className="text-[11px] text-slate-500">{b.time_slot}</div>
-                    </td>
-                    <td className="px-4 py-4 font-bold text-white">₹{b.total_amount}</td>
-                    <td className="px-4 py-4">
-                      <span className="capitalize font-semibold text-xs px-2.5 py-1 rounded-full bg-slate-800 text-slate-200 border border-slate-700">
-                        {b.status?.replace(/_/g, " ")}
+          {loading ? (
+            <div className="surface divide-y divide-white/[0.05]">
+              {[0, 1, 2].map((i) => (
+                <div key={i} className="p-5 flex items-center gap-4">
+                  <Skeleton className="w-11 h-11 rounded-xl" />
+                  <div className="flex-1 space-y-2">
+                    <Skeleton className="h-4 w-1/3" />
+                    <Skeleton className="h-3 w-1/4" />
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : recent.length === 0 ? (
+            <EmptyState
+              compact
+              icon={CalendarClock}
+              title="No bookings yet"
+              description="Book your first service — it'll appear here with live tracking and chat."
+              action={<ButtonLink to="/services">Explore services</ButtonLink>}
+            />
+          ) : (
+            <Stagger animateOnMount className="surface divide-y divide-white/[0.05] overflow-hidden" as="ul">
+              {recent.map((b) => {
+                const v = serviceVisual(b.service?.category);
+                const Icon = v.icon;
+                return (
+                  <StaggerItem as="li" key={b.id} className="p-4 sm:p-5 flex flex-col sm:flex-row sm:items-center gap-4 hover:bg-white/[0.015] transition-colors">
+                    <div className="flex items-center gap-3 flex-1 min-w-0">
+                      <span className={cn("w-11 h-11 rounded-xl flex items-center justify-center shrink-0", v.toneClasses.bg)}>
+                        <Icon className={cn("w-5 h-5", v.toneClasses.icon)} aria-hidden="true" />
                       </span>
-                    </td>
-                    <td className="px-4 py-4 text-right">
-                      <div className="flex items-center justify-end gap-2">
-                        <button
-                          onClick={() => setTrackedBooking(b)}
-                          className="px-2.5 py-1 rounded-lg bg-blue-600/20 text-blue-400 hover:bg-blue-600/30 border border-blue-500/30 text-xs font-semibold"
-                        >
-                          Track
-                        </button>
-                        <button
-                          onClick={() => setChatBooking(b)}
-                          className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs"
-                        >
-                          💬 Chat
-                        </button>
-                        {b.status === "completed" && (
-                          <button
-                            onClick={() => setReviewBooking(b)}
-                            className="px-2.5 py-1 rounded-lg bg-amber-500/20 text-amber-300 font-bold border border-amber-500/30 text-xs"
-                          >
-                            ⭐ Review
-                          </button>
-                        )}
-                        {b.status === "pending" && (
-                          <button
-                            onClick={() => handlePayBooking(b)}
-                            disabled={actionLoading === b.id}
-                            className="px-3 py-1 rounded-lg bg-blue-600 hover:bg-blue-500 text-white font-bold text-xs shadow"
-                          >
-                            Pay ₹{b.total_amount}
-                          </button>
-                        )}
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-white truncate">{b.service?.name || b.service?.title}</p>
+                        <p className="text-xs text-ink-400 truncate">
+                          {b.provider?.full_name || "Professional"} · {formatDate(b.booking_date)} · {b.time_slot}
+                        </p>
                       </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                    </div>
+                    <div className="flex items-center justify-between sm:justify-end gap-3">
+                      <StatusBadge status={b.status} size="sm" />
+                      <span className="text-sm font-semibold text-white tabular w-20 text-right">{formatINR(b.total_amount)}</span>
+                    </div>
+                    <div className="flex items-center gap-1.5 sm:justify-end">
+                      {b.status === "pending" && (
+                        <Button size="xs" icon={CreditCard} onClick={() => handlePayBooking(b)} loading={actionLoading === b.id} loadingText="Opening">
+                          Pay
+                        </Button>
+                      )}
+                      <Button size="xs" variant="secondary" icon={Activity} onClick={() => setTrackedBooking(b)}>
+                        Track
+                      </Button>
+                      <Button size="xs" variant="ghost" icon={MessageSquare} onClick={() => setChatBooking(b)} aria-label={`Chat about booking ${b.id}`}>
+                        <span className="hidden sm:inline">Chat</span>
+                      </Button>
+                      {b.status === "completed" && (
+                        <Button size="xs" variant="ghost" icon={Star} className="text-amber-300" onClick={() => setReviewBooking(b)}>
+                          Review
+                        </Button>
+                      )}
+                    </div>
+                  </StaggerItem>
+                );
+              })}
+            </Stagger>
+          )}
+        </section>
+
+        <div className="grid gap-8 lg:grid-cols-[1.4fr_1fr] items-start">
+          <AddressManager selectedAddressId={selectedAddress?.id} onSelectAddress={(addr) => setSelectedAddress(addr)} />
+          <div className="surface p-5 sm:p-6">
+            <h2 className="text-base font-semibold text-white">Your rentals</h2>
+            <p className="text-[13px] text-ink-400 mt-0.5">Track handovers, returns and deposits.</p>
+            <div className="mt-5 grid gap-2">
+              <ButtonLink to="/my-rentals" variant="secondary" iconRight={ArrowRight} className="justify-between">
+                Open My Rentals
+              </ButtonLink>
+              <ButtonLink to="/rentals" variant="ghost" className="justify-between" iconRight={ArrowRight}>
+                Browse the catalogue
+              </ButtonLink>
+            </div>
           </div>
+        </div>
+
+        <ReferralCard />
+
+        <RecommendationSection onSelectService={(svc) => setWizardService(svc)} />
+
+        {categories.length > 0 && (
+          <section aria-labelledby="cat-h">
+            <div className="flex items-end justify-between gap-3 mb-4">
+              <h2 id="cat-h" className="text-lg font-semibold text-white">Book by category</h2>
+              <ButtonLink to="/services" variant="ghost" size="sm" iconRight={ArrowRight}>
+                All services
+              </ButtonLink>
+            </div>
+            <div className="grid gap-3 grid-cols-1 min-[420px]:grid-cols-2 lg:grid-cols-4">
+              {categories.slice(0, 8).map((cat) => (
+                <CategoryCard key={cat.id} category={cat} />
+              ))}
+            </div>
+          </section>
         )}
       </div>
 
-      {/* Modals */}
-      {trackedBooking && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
-          <div className="w-full max-w-2xl">
-            <BookingLiveTracker
-              booking={trackedBooking}
-              onClose={() => setTrackedBooking(null)}
-              onStatusUpdate={handleStatusUpdate}
-            />
-          </div>
-        </div>
-      )}
+      {/* Tracker modal */}
+      <Modal open={!!trackedBooking} onClose={() => setTrackedBooking(null)} size="lg" hideClose bodyClassName="!p-0">
+        {trackedBooking && (
+          <BookingLiveTracker booking={trackedBooking} onClose={() => setTrackedBooking(null)} onStatusUpdate={handleStatusUpdate} />
+        )}
+      </Modal>
 
-      {chatBooking && (
-        <BookingChatModal booking={chatBooking} onClose={() => setChatBooking(null)} />
-      )}
+      {chatBooking && <BookingChatModal booking={chatBooking} onClose={() => setChatBooking(null)} />}
 
-      {reviewBooking && (
-        <ReviewModal
-          booking={reviewBooking}
-          onClose={() => setReviewBooking(null)}
-          onSuccess={() => loadData()}
-        />
-      )}
+      {reviewBooking && <ReviewModal booking={reviewBooking} onClose={() => setReviewBooking(null)} onSuccess={() => loadData()} />}
 
       {wizardService && (
         <BookingWizardModal
           service={wizardService}
           onClose={() => setWizardService(null)}
+          onBooked={() => loadData()}
           onSuccess={() => {
             setWizardService(null);
             loadData();

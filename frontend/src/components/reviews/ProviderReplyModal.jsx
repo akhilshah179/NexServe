@@ -1,67 +1,67 @@
 import { useState } from "react";
+import { MessageSquare } from "lucide-react";
 import { replyToReviewApi } from "../../api/reviewsApi";
+import { Modal, Button, Field, Textarea, Rating, Alert, useToast } from "../ui";
+import { getErrorMessage } from "../../lib/format";
 
 export default function ProviderReplyModal({ review, onClose, onSuccess }) {
+  const { toast } = useToast();
+  const [open, setOpen] = useState(true);
   const [reply, setReply] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState("");
+
+  const close = () => {
+    setOpen(false);
+    setTimeout(onClose, 250);
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!reply.trim()) return;
 
     setSubmitting(true);
+    setError("");
     try {
       const updatedReview = await replyToReviewApi(review.id, { reply: reply.trim() });
-      alert("Reply posted successfully.");
-      if (onSuccess) onSuccess(updatedReview);
-      onClose();
+      toast.success("Reply posted", "It's now visible on your public profile.");
+      onSuccess?.(updatedReview);
+      close();
     } catch (err) {
-      alert(err.response?.data?.detail || "Failed to post reply.");
+      setError(getErrorMessage(err, "Failed to post reply."));
     } finally {
       setSubmitting(false);
     }
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-sm animate-fade-in">
-      <div className="w-full max-w-md bg-surface-800 border border-white/10 rounded-2xl p-6 shadow-2xl">
-        <h3 className="text-lg font-bold text-white mb-1">Reply to Review</h3>
-        <p className="text-xs text-gray-400 mb-4">
-          Response will be publicly visible on your provider profile.
-        </p>
-
-        <div className="p-3.5 rounded-xl bg-surface-700/50 border border-white/5 mb-4 text-xs">
-          <p className="text-yellow-400 font-semibold mb-1">Rating: {review.rating} / 5 ⭐</p>
-          <p className="text-gray-300 italic">&quot;{review.comment || "No comment provided."}&quot;</p>
+    <Modal
+      open={open}
+      onClose={close}
+      icon={MessageSquare}
+      title="Reply to review"
+      description="Your reply is shown publicly under this review."
+      footer={
+        <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2">
+          <Button variant="secondary" onClick={close}>
+            Cancel
+          </Button>
+          <Button type="submit" form="reply-form" loading={submitting} loadingText="Posting" disabled={!reply.trim()}>
+            Post reply
+          </Button>
         </div>
-
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="block text-xs font-semibold text-gray-300 mb-1">Your Professional Reply</label>
-            <textarea
-              required
-              rows={3}
-              value={reply}
-              onChange={(e) => setReply(e.target.value)}
-              placeholder="Thank the customer or address their feedback..."
-              className="w-full px-3.5 py-2.5 rounded-xl bg-surface-700 border border-white/10 text-white text-xs outline-none focus:border-primary-500"
-            />
-          </div>
-
-          <div className="flex items-center justify-end gap-3 pt-3 border-t border-white/10">
-            <button type="button" onClick={onClose} className="px-4 py-2 text-xs font-semibold text-gray-400 hover:text-white">
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={submitting || !reply.trim()}
-              className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-primary-600 to-primary-500 text-white font-semibold text-xs shadow-md shadow-primary-500/20"
-            >
-              {submitting ? "Posting..." : "Post Reply"}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
+      }
+    >
+      <form id="reply-form" onSubmit={handleSubmit} className="space-y-5">
+        <div className="surface-inset p-4">
+          <Rating value={review.rating} />
+          <p className="mt-2 text-sm text-ink-200 italic">“{review.comment || "No comment provided."}”</p>
+        </div>
+        <Field label="Your reply" required>
+          <Textarea rows={4} value={reply} onChange={(e) => setReply(e.target.value)} placeholder="Thank the customer or respond to their feedback…" />
+        </Field>
+        {error && <Alert tone="error">{error}</Alert>}
+      </form>
+    </Modal>
   );
 }

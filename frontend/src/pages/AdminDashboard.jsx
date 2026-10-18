@@ -15,6 +15,9 @@
 
 import { useState, useEffect } from "react";
 import { useAuth } from "../context/AuthContext";
+import { Plus, Users, BadgeCheck, LayoutGrid, CalendarClock, Wallet } from "lucide-react";
+import { Button, StatCard, Tabs, Reveal, useToast } from "../components/ui";
+import { formatINR, getErrorMessage } from "../lib/format";
 import {
   getAdminStats,
   getPendingProvidersApi,
@@ -36,6 +39,7 @@ import { getRentalDamageClaims, reviewRentalDamageClaim } from "../api/rentalsAp
 
 export default function AdminDashboard() {
   const { user } = useAuth();
+  const { toast, prompt } = useToast();
   const [stats, setStats] = useState(null);
   const [pendingProviders, setPendingProviders] = useState([]);
   const [users, setUsers] = useState([]);
@@ -109,10 +113,10 @@ export default function AdminDashboard() {
     setActionLoading(`approve-${providerId}`);
     try {
       await approveProviderApi(providerId);
-      alert("Provider has been approved successfully.");
+      toast.success("Provider has been approved successfully.");
       await loadAllData();
     } catch (err) {
-      alert(err.response?.data?.detail || "Failed to approve provider.");
+      toast.error(getErrorMessage(err, "Failed to approve provider."));
     } finally {
       setActionLoading(null);
     }
@@ -124,12 +128,12 @@ export default function AdminDashboard() {
     setActionLoading(`reject-${rejectModalProvider.id}`);
     try {
       await rejectProviderApi(rejectModalProvider.id, rejectionReason.trim());
-      alert("Provider application rejected.");
+      toast.success("Provider application rejected.");
       setRejectModalProvider(null);
       setRejectionReason("");
       await loadAllData();
     } catch (err) {
-      alert(err.response?.data?.detail || "Failed to reject provider.");
+      toast.error(getErrorMessage(err, "Failed to reject provider."));
     } finally {
       setActionLoading(null);
     }
@@ -141,7 +145,7 @@ export default function AdminDashboard() {
       await toggleUserActiveApi(userId);
       await loadAllData();
     } catch (err) {
-      alert(err.response?.data?.detail || "Failed to update user status.");
+      toast.error(getErrorMessage(err, "Failed to update user status."));
     } finally {
       setActionLoading(null);
     }
@@ -153,7 +157,7 @@ export default function AdminDashboard() {
       await updateUserRole(userId, newRole);
       await loadAllData();
     } catch (err) {
-      alert(err.response?.data?.detail || "Failed to change user role.");
+      toast.error(getErrorMessage(err, "Failed to change user role."));
     } finally {
       setActionLoading(null);
     }
@@ -167,33 +171,46 @@ export default function AdminDashboard() {
         description: newCatDesc,
         icon_url: newCatIcon,
       });
-      alert("New service category created successfully!");
+      toast.success("New service category created successfully!");
       setShowCategoryModal(false);
       setNewCatName("");
       setNewCatDesc("");
       await loadAllData();
     } catch (err) {
-      alert(err.response?.data?.detail || "Failed to create category.");
+      toast.error(getErrorMessage(err, "Failed to create category."));
     }
   };
 
   const handleProcessRefund = async (paymentId) => {
-    const reason = prompt("Enter reason for processing payment refund:");
-    if (!reason) return;
+    const reason = await prompt({
+      title: "Process refund",
+      description: "The customer is refunded through Razorpay. Add a reason for the audit log.",
+      label: "Refund reason",
+      placeholder: "e.g. Service not delivered",
+      confirmLabel: "Process refund",
+      required: true,
+    });
+    if (!reason || !reason.trim()) return;
     setActionLoading(`refund-${paymentId}`);
     try {
-      await processRefundApi(paymentId, reason);
-      alert("Refund processed successfully.");
+      await processRefundApi(paymentId, null, reason.trim());
+      toast.success("Refund processed successfully.");
       await loadAllData();
     } catch (err) {
-      alert(err.response?.data?.detail || "Failed to process refund.");
+      toast.error(getErrorMessage(err, "Failed to process refund."));
     } finally {
       setActionLoading(null);
     }
   };
 
   const handleReviewClaim = async (claimId, status, approvedAmount = 0) => {
-    const adminNotes = prompt(`Enter admin notes for claim ${status}:`, status === "APPROVED" ? "Damage verified and deduction approved." : "Claim rejected, deposit refunded.");
+    const adminNotes = await prompt({
+      title: status === "APPROVED" ? "Approve damage claim" : "Reject damage claim",
+      label: "Admin notes",
+      defaultValue: status === "APPROVED" ? "Damage verified and deduction approved." : "Claim rejected, deposit refunded.",
+      confirmLabel: status === "APPROVED" ? "Approve claim" : "Reject claim",
+      tone: status === "APPROVED" ? undefined : "danger",
+    });
     if (adminNotes === null) return;
     setActionLoading(`claim-${claimId}`);
     try {
@@ -202,107 +219,67 @@ export default function AdminDashboard() {
         approved_deduction_amount: status === "APPROVED" ? Number(approvedAmount) : 0,
         admin_notes: adminNotes,
       });
-      alert(`Claim #${claimId} resolved as ${status}.`);
+      toast.success(`Claim #${claimId} resolved as ${status}.`);
       await loadAllData();
     } catch (err) {
-      alert(err.response?.data?.detail || "Failed to review damage claim.");
+      toast.error(getErrorMessage(err, "Failed to review damage claim."));
     } finally {
       setActionLoading(null);
     }
   };
 
   return (
-    <div className="min-h-screen pt-24 pb-16 px-4 max-w-7xl mx-auto space-y-8">
-      {/* Header Banner */}
-      <div className="p-8 rounded-3xl bg-surface-850 border border-white/10 shadow-2xl flex flex-col md:flex-row items-start md:items-center justify-between gap-6">
+    <div className="pt-28 sm:pt-32 pb-24 container-page space-y-8">
+      <Reveal y={12} className="flex flex-col md:flex-row md:items-end justify-between gap-6">
         <div>
-          <div className="flex items-center gap-2">
-            <h1 className="text-2xl font-extrabold text-white">NexServe Admin Control Suite</h1>
-            <span className="px-3 py-1 rounded-full text-xs font-bold bg-primary-500/20 text-primary-300 border border-primary-500/30">
-              🔑 System Admin
-            </span>
-          </div>
-          <p className="text-xs text-gray-400 mt-1">Platform management, verification, audit logs, and analytics.</p>
+          <p className="eyebrow mb-3">Admin console</p>
+          <h1 className="text-3xl sm:text-4xl font-semibold text-white">Platform overview</h1>
+          <p className="mt-2 text-ink-400">Verification, users, bookings, payments and audit activity.</p>
         </div>
+        <Button icon={Plus} onClick={() => setShowCategoryModal(true)}>
+          New category
+        </Button>
+      </Reveal>
 
-        <button
-          onClick={() => setShowCategoryModal(true)}
-          className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-primary-600 to-primary-500 text-white font-bold text-xs shadow-lg shadow-primary-500/25"
-        >
-          + Create Category
-        </button>
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-4">
+        <StatCard label="Users" value={stats?.total_users || users.length} icon={Users} tone="indigo" />
+        <StatCard label="Providers" value={stats?.total_providers || 0} icon={BadgeCheck} tone="blue" />
+        <StatCard label="Active services" value={stats?.total_services || 0} icon={LayoutGrid} tone="teal" />
+        <StatCard label="Bookings" value={stats?.total_bookings || bookings.length} icon={CalendarClock} tone="amber" />
+        <StatCard label="Revenue" value={Number(stats?.total_revenue || 0)} format={(n) => formatINR(n)} icon={Wallet} tone="emerald" className="col-span-2 lg:col-span-1" />
       </div>
 
-      {/* KPI Stats Grid */}
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-4">
-        <div className="p-5 rounded-3xl bg-surface-850 border border-white/10">
-          <span className="text-[10px] text-gray-400 uppercase font-bold block mb-1">Total Users</span>
-          <span className="text-xl font-extrabold text-white">{stats?.total_users || users.length}</span>
-        </div>
-
-        <div className="p-5 rounded-3xl bg-surface-850 border border-white/10">
-          <span className="text-[10px] text-gray-400 uppercase font-bold block mb-1">Providers</span>
-          <span className="text-xl font-extrabold text-primary-300">{stats?.total_providers || 0}</span>
-        </div>
-
-        <div className="p-5 rounded-3xl bg-surface-850 border border-white/10">
-          <span className="text-[10px] text-gray-400 uppercase font-bold block mb-1">Active Services</span>
-          <span className="text-xl font-extrabold text-accent-400">{stats?.total_services || 0}</span>
-        </div>
-
-        <div className="p-5 rounded-3xl bg-surface-850 border border-white/10">
-          <span className="text-[10px] text-gray-400 uppercase font-bold block mb-1">Total Bookings</span>
-          <span className="text-xl font-extrabold text-amber-400">{stats?.total_bookings || bookings.length}</span>
-        </div>
-
-        <div className="p-5 rounded-3xl bg-surface-850 border border-white/10 col-span-2 lg:col-span-1">
-          <span className="text-[10px] text-gray-400 uppercase font-bold block mb-1">Platform Revenue</span>
-          <span className="text-xl font-extrabold text-emerald-400">₹{stats?.total_revenue || 0}</span>
-        </div>
-      </div>
-
-      {/* SaaS Tabs Navigation */}
-      <div className="flex items-center gap-2 border-b border-white/10 pb-4 overflow-x-auto">
-        {[
-          { id: "approvals", label: `Pending Approvals (${pendingProviders.length})` },
-          { id: "claims", label: `⚠️ Rental Damage Claims (${damageClaims.filter((c) => c.status === "PENDING").length})` },
-          { id: "users", label: `Users (${users.length})` },
-          { id: "categories", label: `Categories (${categories.length})` },
-          { id: "bookings", label: `Bookings (${bookings.length})` },
-          { id: "payments", label: `Payments (${payments.length})` },
-          { id: "messages", label: `Contact Messages (${messages.length})` },
-          { id: "audit", label: "Audit Logs" },
-        ].map((tab) => (
-          <button
-            key={tab.id}
-            onClick={() => setActiveTab(tab.id)}
-            className={`px-4 py-2.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all ${
-              activeTab === tab.id
-                ? tab.id === "claims"
-                  ? "bg-rose-600 text-white shadow-lg shadow-rose-500/25"
-                  : "bg-primary-600 text-white shadow-lg shadow-primary-500/25"
-                : "bg-surface-850 border border-white/10 text-gray-400 hover:text-white"
-            }`}
-          >
-            {tab.label}
-          </button>
-        ))}
-      </div>
+      <Tabs
+        ariaLabel="Admin sections"
+        value={activeTab}
+        onChange={setActiveTab}
+        className="max-w-full"
+        items={[
+          { id: "approvals", label: "Approvals", count: pendingProviders.length },
+          { id: "claims", label: "Damage claims", count: damageClaims.filter((c) => c.status === "PENDING").length },
+          { id: "users", label: "Users", count: users.length },
+          { id: "categories", label: "Categories", count: categories.length },
+          { id: "bookings", label: "Bookings", count: bookings.length },
+          { id: "payments", label: "Payments", count: payments.length },
+          { id: "messages", label: "Messages", count: messages.length },
+          { id: "audit", label: "Audit log" },
+        ]}
+      />
 
       {/* TAB 1: PENDING PROVIDERS APPROVALS */}
       {activeTab === "approvals" && (
-        <div className="p-6 rounded-3xl bg-surface-850 border border-white/10 shadow-2xl">
+        <div className="p-6 rounded-2xl surface shadow-[var(--shadow-card)]">
           <h2 className="text-lg font-bold text-white mb-4">Pending Provider Verification Queue</h2>
           {pendingProviders.length === 0 ? (
-            <div className="py-12 text-center text-xs text-gray-400">No pending provider verification requests.</div>
+            <div className="py-12 text-center text-xs text-ink-400">No pending provider verification requests.</div>
           ) : (
             <div className="grid gap-4">
               {pendingProviders.map((p) => (
                 <div key={p.id} className="p-5 rounded-2xl bg-surface-800 border border-white/5 flex items-center justify-between">
                   <div>
                     <h3 className="text-sm font-bold text-white">{p.full_name}</h3>
-                    <p className="text-xs text-gray-400">{p.email} • {p.location}</p>
-                    <p className="text-xs text-gray-300 mt-1 italic">"{p.bio}"</p>
+                    <p className="text-xs text-ink-400">{p.email} • {p.location}</p>
+                    <p className="text-xs text-ink-300 mt-1 italic">"{p.bio}"</p>
                   </div>
                   <div className="flex items-center gap-2">
                     <button
@@ -328,14 +305,13 @@ export default function AdminDashboard() {
 
       {/* TAB 1.5: RENTAL DAMAGE CLAIMS & ESCROW ARBITRATION */}
       {activeTab === "claims" && (
-        <div className="p-6 rounded-3xl bg-surface-850 border border-white/10 shadow-2xl space-y-4">
+        <div className="p-6 rounded-2xl surface shadow-[var(--shadow-card)] space-y-4">
           <div className="flex items-center justify-between">
             <div>
               <h2 className="text-lg font-bold text-white flex items-center gap-2">
-                <span>🛡️</span>
                 <span>Rental Damage Claims & Security Deposit Arbitration</span>
               </h2>
-              <p className="text-xs text-gray-400">
+              <p className="text-xs text-ink-400">
                 Review host damage reports, verify repair estimates, and release or deduct security deposits held in escrow.
               </p>
             </div>
@@ -345,13 +321,13 @@ export default function AdminDashboard() {
           </div>
 
           {damageClaims.length === 0 ? (
-            <div className="py-12 text-center text-xs text-gray-400">
+            <div className="py-12 text-center text-xs text-ink-400">
               No damage claims filed. All rentals currently active or completed with 100% clean deposit return.
             </div>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs text-gray-300">
-                <thead className="uppercase tracking-wider bg-surface-800 text-gray-400 border-b border-white/5">
+              <table className="w-full text-left text-xs text-ink-300">
+                <thead className="uppercase tracking-wider bg-surface-800 text-ink-400 border-b border-white/5">
                   <tr>
                     <th className="px-4 py-3">Claim ID</th>
                     <th className="px-4 py-3">Booking & Item</th>
@@ -367,7 +343,7 @@ export default function AdminDashboard() {
                       <td className="px-4 py-4 font-bold text-white">#{claim.id}</td>
                       <td className="px-4 py-4">
                         <div className="font-semibold text-white">Booking #{claim.rental_booking_id}</div>
-                        <div className="text-[11px] text-gray-400">
+                        <div className="text-[11px] text-ink-400">
                           {new Date(claim.created_at).toLocaleDateString()}
                         </div>
                       </td>
@@ -385,7 +361,7 @@ export default function AdminDashboard() {
                             claim.status === "APPROVED"
                               ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/30"
                               : claim.status === "REJECTED"
-                              ? "bg-gray-700 text-gray-300 border-white/10"
+                              ? "bg-surface-700 text-ink-300 border-white/10"
                               : "bg-amber-500/20 text-amber-300 border-amber-500/30"
                           }`}
                         >
@@ -411,7 +387,7 @@ export default function AdminDashboard() {
                             </button>
                           </div>
                         ) : (
-                          <span className="text-[11px] text-gray-500">
+                          <span className="text-[11px] text-ink-500">
                             Arbitrated ({claim.admin_notes || "Resolved"})
                           </span>
                         )}
@@ -427,11 +403,11 @@ export default function AdminDashboard() {
 
       {/* TAB 2: USER MANAGEMENT */}
       {activeTab === "users" && (
-        <div className="p-6 rounded-3xl bg-surface-850 border border-white/10 shadow-2xl">
+        <div className="p-6 rounded-2xl surface shadow-[var(--shadow-card)]">
           <h2 className="text-lg font-bold text-white mb-4">All Registered Platform Users</h2>
           <div className="overflow-x-auto">
-            <table className="w-full text-left text-xs text-gray-300">
-              <thead className="uppercase tracking-wider bg-surface-800 text-gray-400 border-b border-white/5">
+            <table className="w-full text-left text-xs text-ink-300">
+              <thead className="uppercase tracking-wider bg-surface-800 text-ink-400 border-b border-white/5">
                 <tr>
                   <th className="px-4 py-3">ID</th>
                   <th className="px-4 py-3">Name & Email</th>
@@ -446,7 +422,7 @@ export default function AdminDashboard() {
                     <td className="px-4 py-4 font-bold text-white">#{u.id}</td>
                     <td className="px-4 py-4">
                       <div className="font-bold text-white">{u.full_name}</div>
-                      <div className="text-gray-400 text-[11px]">{u.email}</div>
+                      <div className="text-ink-400 text-[11px]">{u.email}</div>
                     </td>
                     <td className="px-4 py-4 capitalize font-bold">{u.role}</td>
                     <td className="px-4 py-4">
@@ -484,11 +460,11 @@ export default function AdminDashboard() {
       {/* Create Category Modal */}
       {showCategoryModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
-          <div className="w-full max-w-md bg-surface-850 border border-white/10 rounded-3xl p-6 shadow-2xl space-y-4">
+          <div className="w-full max-w-md surface rounded-2xl p-6 shadow-[var(--shadow-card)] space-y-4">
             <h3 className="text-lg font-bold text-white">Create New Category</h3>
             <form onSubmit={handleCreateCategorySubmit} className="space-y-4 text-xs">
               <div>
-                <label className="block font-bold text-gray-300 uppercase mb-1">Category Name</label>
+                <label className="block font-bold text-ink-300 uppercase mb-1">Category Name</label>
                 <input
                   type="text"
                   required
@@ -500,7 +476,7 @@ export default function AdminDashboard() {
               </div>
 
               <div>
-                <label className="block font-bold text-gray-300 uppercase mb-1">Description</label>
+                <label className="block font-bold text-ink-300 uppercase mb-1">Description</label>
                 <textarea
                   rows={2}
                   required
@@ -512,7 +488,7 @@ export default function AdminDashboard() {
               </div>
 
               <div>
-                <label className="block font-bold text-gray-300 uppercase mb-1">Icon Emoji / URL</label>
+                <label className="block font-bold text-ink-300 uppercase mb-1">Icon Emoji / URL</label>
                 <input
                   type="text"
                   required
@@ -523,7 +499,7 @@ export default function AdminDashboard() {
               </div>
 
               <div className="flex items-center justify-end gap-3 pt-4 border-t border-white/10">
-                <button type="button" onClick={() => setShowCategoryModal(false)} className="px-4 py-2 text-gray-400">
+                <button type="button" onClick={() => setShowCategoryModal(false)} className="px-4 py-2 text-ink-400">
                   Cancel
                 </button>
                 <button type="submit" className="px-5 py-2.5 rounded-xl bg-primary-600 text-white font-bold">
@@ -538,11 +514,11 @@ export default function AdminDashboard() {
       {/* Provider Reject Reason Modal */}
       {rejectModalProvider && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
-          <div className="w-full max-w-md bg-surface-850 border border-white/10 rounded-3xl p-6 shadow-2xl space-y-4">
+          <div className="w-full max-w-md surface rounded-2xl p-6 shadow-[var(--shadow-card)] space-y-4">
             <h3 className="text-lg font-bold text-white">Reject Provider #{rejectModalProvider.id}</h3>
             <form onSubmit={handleRejectSubmit} className="space-y-4 text-xs">
               <div>
-                <label className="block font-bold text-gray-300 uppercase mb-1">Rejection Reason</label>
+                <label className="block font-bold text-ink-300 uppercase mb-1">Rejection Reason</label>
                 <textarea
                   rows={3}
                   required
@@ -554,7 +530,7 @@ export default function AdminDashboard() {
               </div>
 
               <div className="flex items-center justify-end gap-3 pt-4 border-t border-white/10">
-                <button type="button" onClick={() => setRejectModalProvider(null)} className="px-4 py-2 text-gray-400">
+                <button type="button" onClick={() => setRejectModalProvider(null)} className="px-4 py-2 text-ink-400">
                   Cancel
                 </button>
                 <button type="submit" className="px-5 py-2.5 rounded-xl bg-error-600 text-white font-bold">

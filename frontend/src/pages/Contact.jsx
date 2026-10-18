@@ -1,188 +1,246 @@
 /**
- * Contact Page — let users reach out to NexServe.
- *
- * Includes a contact form and contact information cards.
- * The form is client-side only for now — will be connected
- * to the backend API in a later phase.
+ * Contact — support channels, validated contact form and FAQ.
  */
 
 import { useState } from "react";
-import { Link } from "react-router-dom";
+import { AnimatePresence, motion } from "framer-motion";
+import { Mail, Phone, MapPin, Clock, Send, CheckCircle2, ChevronDown, ArrowUpRight, LifeBuoy } from "lucide-react";
 import { submitContactForm } from "../api/contactApi";
+import { PageHeader, Field, Input, Textarea, Select, Button, Alert, Reveal, Stagger, StaggerItem, cn } from "../components/ui";
+import { getErrorMessage } from "../lib/format";
+import { ease } from "../lib/motion";
 
-const contactInfo = [
-  { icon: "📧", label: "Email", value: "support@nexserve.com", href: "mailto:support@nexserve.com" },
-  { icon: "📞", label: "Phone", value: "+91 98765 43210", href: "tel:+919876543210" },
-  { icon: "📍", label: "Address", value: "Bengaluru, Karnataka, India", href: null },
-  { icon: "🕐", label: "Hours", value: "Mon–Sat, 9 AM – 8 PM", href: null },
+const contactChannels = [
+  { icon: Mail, label: "Email support", value: "support@nexserve.com", href: "mailto:support@nexserve.com", note: "Replies within 2 hours" },
+  { icon: Phone, label: "Phone & emergency dispatch", value: "+91 98765 43210", href: "tel:+919876543210", note: "Toll free" },
+  { icon: MapPin, label: "Headquarters", value: "Koramangala, Bengaluru", href: null, note: "Karnataka, India" },
+  { icon: Clock, label: "Support hours", value: "Every day, 8 AM – 10 PM", href: null, note: "Emergency dispatch 24/7" },
 ];
 
+const TOPICS = ["A booking I made", "A rental or deposit", "Payments & refunds", "Becoming a partner", "Something else"];
+
+const faqs = [
+  {
+    q: "How does the security deposit work for rentals?",
+    a: "Your deposit is collected at checkout and held securely. Once you return the item and the host completes the inspection, it's refunded to your original payment method.",
+  },
+  {
+    q: "What if a professional doesn't show up or the work isn't right?",
+    a: "Every booking is covered by our 30-day re-work guarantee. If something isn't right, we'll send a professional back or arrange a refund.",
+  },
+  {
+    q: "How are professionals verified?",
+    a: "Each professional completes identity verification, a background check and a skills assessment before their profile goes live.",
+  },
+  {
+    q: "Can I reschedule or cancel a booking?",
+    a: "Yes — open the booking from your dashboard or Service History to track it or cancel it with a reason.",
+  },
+];
+
+const EMPTY = { name: "", email: "", subject: "", topic: TOPICS[0], message: "" };
+
+function validate(data) {
+  const e = {};
+  if (data.name.trim().length < 2) e.name = "Please enter your name.";
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(data.email.trim())) e.email = "Enter a valid email address.";
+  if (data.subject.trim().length < 3) e.subject = "Add a short subject.";
+  if (data.message.trim().length < 20) e.message = "Tell us a bit more — at least 20 characters.";
+  return e;
+}
+
 export default function Contact() {
-  const [formData, setFormData] = useState({ name: "", email: "", subject: "", message: "" });
+  const [formData, setFormData] = useState(EMPTY);
+  const [touched, setTouched] = useState({});
   const [isSubmitted, setIsSubmitted] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
+  const [openFaq, setOpenFaq] = useState(0);
+
+  const errors = validate(formData);
+  const show = (k) => (touched[k] ? errors[k] : undefined);
 
   const handleChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
   };
+  const handleBlur = (e) => setTouched((t) => ({ ...t, [e.target.name]: true }));
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    setTouched({ name: true, email: true, subject: true, message: true });
+    if (Object.keys(errors).length) return;
     setSubmitting(true);
     setError("");
     try {
-      await submitContactForm(formData);
+      await submitContactForm({
+        name: formData.name.trim(),
+        email: formData.email.trim(),
+        subject: `[${formData.topic}] ${formData.subject.trim()}`,
+        message: formData.message.trim(),
+      });
       setIsSubmitted(true);
-      setTimeout(() => setIsSubmitted(false), 5000);
-      setFormData({ name: "", email: "", subject: "", message: "" });
+      setFormData(EMPTY);
+      setTouched({});
     } catch (err) {
       console.error("Failed to submit contact message:", err);
-      setError("Failed to send message. Please try again later.");
+      setError(getErrorMessage(err, "We couldn't send your message. Please try again or call us."));
     } finally {
       setSubmitting(false);
     }
   };
 
   return (
-    <div className="pt-24 pb-16">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        {/* Header */}
-        <div className="text-center mb-16">
-          <h1 className="text-4xl sm:text-5xl font-extrabold text-white mb-4 animate-slide-up">
-            Get in{" "}
-            <span className="bg-gradient-to-r from-primary-400 to-accent-400 bg-clip-text text-transparent">
-              Touch
-            </span>
-          </h1>
-          <p className="max-w-2xl mx-auto text-gray-400 text-lg animate-slide-up" style={{ animationDelay: "0.1s" }}>
-            Have a question or need help? We'd love to hear from you.
-          </p>
-        </div>
+    <div className="pb-24">
+      <PageHeader
+        eyebrow="Contact"
+        title="We're here to help"
+        subtitle="Questions about a booking, a rental deposit, or joining as a partner? Reach the team directly — real people, fast answers."
+      />
 
-        <div className="grid lg:grid-cols-5 gap-10">
-          {/* Contact Form */}
-          <div className="lg:col-span-3 animate-slide-up" style={{ animationDelay: "0.15s" }}>
-            <form onSubmit={handleSubmit} className="p-8 rounded-2xl bg-surface-800/50 border border-white/5">
-              <h2 className="text-xl font-semibold text-white mb-6">Send us a message</h2>
-
-              <div className="grid sm:grid-cols-2 gap-4 mb-4">
+      <div className="container-page grid gap-8 lg:grid-cols-[1.35fr_1fr] items-start">
+        {/* Form */}
+        <Reveal className="surface p-6 sm:p-8">
+          <AnimatePresence mode="wait">
+            {isSubmitted ? (
+              <motion.div
+                key="done"
+                initial={{ opacity: 0, scale: 0.97 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.35, ease: ease.out }}
+                className="py-10 text-center"
+                role="status"
+              >
+                <motion.div
+                  initial={{ scale: 0 }}
+                  animate={{ scale: 1 }}
+                  transition={{ type: "spring", stiffness: 320, damping: 18, delay: 0.1 }}
+                  className="w-16 h-16 mx-auto rounded-full bg-emerald-400/15 text-emerald-300 flex items-center justify-center"
+                >
+                  <CheckCircle2 className="w-8 h-8" aria-hidden="true" />
+                </motion.div>
+                <h2 className="mt-6 text-2xl font-semibold text-white">Message sent</h2>
+                <p className="mt-2 text-ink-400 max-w-sm mx-auto">
+                  Thanks for reaching out. A support ticket is open and we'll reply to your email shortly.
+                </p>
+                <Button variant="secondary" className="mt-8" onClick={() => setIsSubmitted(false)}>
+                  Send another message
+                </Button>
+              </motion.div>
+            ) : (
+              <motion.form key="form" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onSubmit={handleSubmit} noValidate className="space-y-5">
                 <div>
-                  <label htmlFor="contact-name" className="block text-sm text-gray-400 mb-1.5">Name</label>
-                  <input
-                    id="contact-name"
-                    type="text"
-                    name="name"
-                    value={formData.name}
-                    onChange={handleChange}
-                    required
-                    placeholder="Your name"
-                    className="w-full px-4 py-3 rounded-xl bg-surface-700 border border-white/10 text-white placeholder-gray-500 focus:outline-none focus:border-primary-500/50 focus:ring-1 focus:ring-primary-500/25 transition-all duration-300"
-                  />
+                  <h2 className="text-xl font-semibold text-white">Send us a message</h2>
+                  <p className="text-sm text-ink-400 mt-1">We usually reply within two hours during support hours.</p>
                 </div>
-                <div>
-                  <label htmlFor="contact-email" className="block text-sm text-gray-400 mb-1.5">Email</label>
-                  <input
-                    id="contact-email"
-                    type="email"
-                    name="email"
-                    value={formData.email}
-                    onChange={handleChange}
-                    required
-                    placeholder="you@example.com"
-                    className="w-full px-4 py-3 rounded-xl bg-surface-700 border border-white/10 text-white placeholder-gray-500 focus:outline-none focus:border-primary-500/50 focus:ring-1 focus:ring-primary-500/25 transition-all duration-300"
-                  />
+                <div className="grid sm:grid-cols-2 gap-4">
+                  <Field label="Full name" required error={show("name")}>
+                    <Input name="name" value={formData.name} onChange={handleChange} onBlur={handleBlur} autoComplete="name" placeholder="Your name" />
+                  </Field>
+                  <Field label="Email" required error={show("email")}>
+                    <Input type="email" name="email" value={formData.email} onChange={handleChange} onBlur={handleBlur} autoComplete="email" placeholder="you@example.com" />
+                  </Field>
                 </div>
-              </div>
-
-              <div className="mb-4">
-                <label htmlFor="contact-subject" className="block text-sm text-gray-400 mb-1.5">Subject</label>
-                <input
-                  id="contact-subject"
-                  type="text"
-                  name="subject"
-                  value={formData.subject}
-                  onChange={handleChange}
+                <div className="grid sm:grid-cols-[200px_1fr] gap-4">
+                  <Field label="Topic">
+                    <Select name="topic" value={formData.topic} onChange={handleChange}>
+                      {TOPICS.map((t) => (
+                        <option key={t}>{t}</option>
+                      ))}
+                    </Select>
+                  </Field>
+                  <Field label="Subject" required error={show("subject")}>
+                    <Input name="subject" value={formData.subject} onChange={handleChange} onBlur={handleBlur} placeholder="e.g. Booking #482 rescheduling" />
+                  </Field>
+                </div>
+                <Field
+                  label="Message"
                   required
-                  placeholder="What's this about?"
-                  className="w-full px-4 py-3 rounded-xl bg-surface-700 border border-white/10 text-white placeholder-gray-500 focus:outline-none focus:border-primary-500/50 focus:ring-1 focus:ring-primary-500/25 transition-all duration-300"
-                />
-              </div>
+                  error={show("message")}
+                  hint={`${formData.message.trim().length}/20 characters minimum`}
+                >
+                  <Textarea name="message" rows={6} value={formData.message} onChange={handleChange} onBlur={handleBlur} placeholder="Include booking or rental IDs so we can help faster." />
+                </Field>
+                {error && <Alert tone="error">{error}</Alert>}
+                <Button type="submit" size="lg" fullWidth icon={Send} loading={submitting} loadingText="Sending">
+                  Send message
+                </Button>
+              </motion.form>
+            )}
+          </AnimatePresence>
+        </Reveal>
 
-              <div className="mb-6">
-                <label htmlFor="contact-message" className="block text-sm text-gray-400 mb-1.5">Message</label>
-                <textarea
-                  id="contact-message"
-                  name="message"
-                  value={formData.message}
-                  onChange={handleChange}
-                  required
-                  rows={5}
-                  placeholder="Tell us more..."
-                  className="w-full px-4 py-3 rounded-xl bg-surface-700 border border-white/10 text-white placeholder-gray-500 focus:outline-none focus:border-primary-500/50 focus:ring-1 focus:ring-primary-500/25 transition-all duration-300 resize-none"
-                />
-              </div>
+        {/* Channels */}
+        <div className="space-y-6">
+          <Stagger className="grid gap-3">
+            {contactChannels.map((c) => {
+              const Icon = c.icon;
+              const inner = (
+                <>
+                  <span className="w-10 h-10 rounded-xl bg-primary-500/12 text-primary-300 flex items-center justify-center shrink-0">
+                    <Icon className="w-[18px] h-[18px]" aria-hidden="true" />
+                  </span>
+                  <span className="flex-1 min-w-0">
+                    <span className="block text-xs text-ink-400">{c.label}</span>
+                    <span className="block text-sm font-medium text-white truncate">{c.value}</span>
+                    <span className="block text-xs text-ink-500">{c.note}</span>
+                  </span>
+                  {c.href && <ArrowUpRight className="w-4 h-4 text-ink-500 group-hover:text-white transition-colors" aria-hidden="true" />}
+                </>
+              );
+              return (
+                <StaggerItem key={c.label}>
+                  {c.href ? (
+                    <a href={c.href} className="group surface card-interactive p-4 flex items-center gap-4">
+                      {inner}
+                    </a>
+                  ) : (
+                    <div className="surface p-4 flex items-center gap-4">{inner}</div>
+                  )}
+                </StaggerItem>
+              );
+            })}
+          </Stagger>
 
-              {/* Error Banner */}
-              {error && (
-                <div className="mb-4 p-4 rounded-xl bg-error-500/10 border border-error-500/20 text-error-400 text-sm flex items-center gap-2">
-                  <span>⚠️</span>
-                  <p>{error}</p>
-                </div>
-              )}
-
-              <button
-                type="submit"
-                disabled={submitting}
-                className="w-full px-6 py-3.5 text-base font-semibold text-white bg-gradient-to-r from-primary-600 to-primary-500 rounded-xl hover:from-primary-500 hover:to-primary-400 shadow-lg shadow-primary-500/25 hover:shadow-primary-500/40 transition-all duration-300 hover:-translate-y-0.5 disabled:opacity-50"
-              >
-                {submitting ? "Sending..." : "Send Message"}
-              </button>
-
-              {/* Success toast */}
-              {isSubmitted && (
-                <div className="mt-4 p-4 rounded-xl bg-success-500/10 border border-success-500/20 text-success-500 text-sm font-medium text-center animate-fade-in">
-                  ✅ Message received successfully! Our team will get back to you soon.
-                </div>
-              )}
-            </form>
-          </div>
-
-          {/* Contact Info Cards */}
-          <div className="lg:col-span-2 flex flex-col gap-4 animate-slide-up" style={{ animationDelay: "0.2s" }}>
-            {contactInfo.map((info) => (
-              <div
-                key={info.label}
-                className="p-5 rounded-2xl bg-surface-800/50 border border-white/5 hover:border-primary-500/20 transition-all duration-300"
-              >
-                <div className="flex items-start gap-4">
-                  <span className="text-2xl">{info.icon}</span>
-                  <div>
-                    <p className="text-sm text-gray-500 mb-0.5">{info.label}</p>
-                    {info.href ? (
-                      <a href={info.href} className="text-white hover:text-primary-400 transition-colors font-medium">
-                        {info.value}
-                      </a>
-                    ) : (
-                      <p className="text-white font-medium">{info.value}</p>
-                    )}
-                  </div>
-                </div>
-              </div>
-            ))}
-
-            {/* FAQ Link */}
-            <div className="p-5 rounded-2xl bg-gradient-to-br from-primary-600/10 to-accent-500/5 border border-primary-500/15">
-              <h3 className="text-white font-semibold mb-2">Have questions?</h3>
-              <p className="text-sm text-gray-400 mb-3">Check our frequently asked questions for quick answers.</p>
-              <Link
-                to="/about"
-                className="text-sm font-medium text-primary-400 hover:text-primary-300 transition-colors"
-              >
-                Learn more about us →
-              </Link>
-            </div>
-          </div>
+          <Reveal id="faq" className="surface p-5 sm:p-6 scroll-mt-24">
+            <h2 className="text-base font-semibold text-white flex items-center gap-2">
+              <LifeBuoy className="w-4 h-4 text-primary-300" aria-hidden="true" />
+              Frequently asked
+            </h2>
+            <ul className="mt-4 divide-y divide-white/[0.06]">
+              {faqs.map((faq, idx) => {
+                const open = openFaq === idx;
+                return (
+                  <li key={faq.q}>
+                    <button
+                      type="button"
+                      onClick={() => setOpenFaq(open ? null : idx)}
+                      aria-expanded={open}
+                      aria-controls={`faq-${idx}`}
+                      className="w-full py-4 flex items-start justify-between gap-4 text-left text-sm font-medium text-ink-100 hover:text-white"
+                    >
+                      {faq.q}
+                      <ChevronDown className={cn("w-4 h-4 mt-0.5 shrink-0 text-ink-400 transition-transform duration-200", open && "rotate-180")} aria-hidden="true" />
+                    </button>
+                    <AnimatePresence initial={false}>
+                      {open && (
+                        <motion.div
+                          id={`faq-${idx}`}
+                          initial={{ height: 0, opacity: 0 }}
+                          animate={{ height: "auto", opacity: 1 }}
+                          exit={{ height: 0, opacity: 0 }}
+                          transition={{ duration: 0.25, ease: ease.out }}
+                          className="overflow-hidden"
+                        >
+                          <p className="pb-4 text-sm text-ink-400 leading-relaxed">{faq.a}</p>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+                  </li>
+                );
+              })}
+            </ul>
+          </Reveal>
         </div>
       </div>
     </div>

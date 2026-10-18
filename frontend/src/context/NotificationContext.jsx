@@ -12,6 +12,7 @@ import { createContext, useContext, useState, useEffect, useCallback } from "rea
 import { useAuth } from "./AuthContext";
 import { createUserNotificationSocket } from "../utils/websocket";
 import { fetchNotificationsApi, fetchUnreadCountApi, markNotificationReadApi, markAllNotificationsReadApi } from "../api/notificationsApi";
+import { useToast } from "../components/ui";
 
 const NotificationContext = createContext(null);
 
@@ -20,7 +21,6 @@ export function NotificationProvider({ children }) {
   const [notifications, setNotifications] = useState([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [loading, setLoading] = useState(false);
-  const [activeToast, setActiveToast] = useState(null);
   const [lastEvent, setLastEvent] = useState(null);
 
   const loadUnreadCount = useCallback(async () => {
@@ -46,20 +46,22 @@ export function NotificationProvider({ children }) {
     }
   }, [user?.id]);
 
-  const showToast = useCallback((toastData) => {
-    setActiveToast(toastData);
-    // Auto dismiss after 6 seconds
-    setTimeout(() => {
-      setActiveToast((curr) => (curr?.id === toastData.id ? null : curr));
-    }, 6000);
-  }, []);
+  const { toast } = useToast();
+
+  // Live events surface through the shared toast system.
+  const showToast = useCallback(
+    (toastData) => {
+      const tone = toastData.type === "rental" ? "rental" : toastData.type === "booking" ? "booking" : "info";
+      toast.show(tone, toastData.title, toastData.message, { duration: 6000 });
+    },
+    [toast]
+  );
 
   // Establish user-specific WebSocket connection
   useEffect(() => {
     if (!user?.id) {
       setNotifications([]);
       setUnreadCount(0);
-      setActiveToast(null);
       return;
     }
 
@@ -82,9 +84,9 @@ export function NotificationProvider({ children }) {
         });
       }
 
-      // Handle booking update event (e.g. new_booking_request, status_update)
+      // Handle service booking update event (e.g. new_booking_request, status_update)
       if (payload?.type === "booking_update" || payload?.event === "status_update" || payload?.event === "booking_created") {
-        const title = payload.title || (payload.event === "booking_created" ? "New Booking Request" : "Booking Status Update");
+        const title = payload.title || (payload.event === "booking_created" ? "New booking request" : "Booking update");
         const message = payload.message || payload.notes || `Booking #${payload.booking_id || payload.booking?.id} updated to ${payload.status || "new status"}`;
         showToast({
           id: Date.now(),
@@ -92,6 +94,21 @@ export function NotificationProvider({ children }) {
           message,
           type: "booking",
           booking: payload.booking,
+        });
+        loadUnreadCount();
+      }
+
+      // Handle rental booking update event (e.g. new_rental_booking, rental_status_update)
+      if (payload?.type === "rental_booking_update" || payload?.event === "new_rental_booking" || payload?.event === "rental_status_update" || payload?.event === "rental_returned_inspected") {
+        const title = payload.title || (payload.event === "new_rental_booking" ? "New rental request" : "Rental order updated");
+        const statusClean = (payload.status || "").replace(/_/g, " ");
+        const message = payload.message || payload.notes || `Rental #${payload.rental_booking_id} for '${payload.item_name || "item"}' is now ${statusClean}`;
+        showToast({
+          id: Date.now(),
+          title,
+          message,
+          type: "rental",
+          rental_booking_id: payload.rental_booking_id,
         });
         loadUnreadCount();
       }
@@ -138,35 +155,6 @@ export function NotificationProvider({ children }) {
     >
       {children}
 
-      {/* Floating Live Real-Time Toast Notification */}
-      {activeToast && (
-        <div className="fixed bottom-6 right-6 z-50 max-w-sm w-full animate-slide-up">
-          <div className="p-4 rounded-2xl bg-surface-800/95 backdrop-blur-xl border border-primary-500/40 shadow-2xl shadow-primary-500/20 text-white flex items-start gap-3 relative overflow-hidden">
-            {/* Top Accent line */}
-            <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-primary-500 via-accent-500 to-emerald-400" />
-            
-            <div className="w-9 h-9 rounded-xl bg-primary-500/20 text-primary-400 flex items-center justify-center text-lg shrink-0 mt-0.5 border border-primary-500/30">
-              {activeToast.title?.includes("Way") ? "🚗" : activeToast.title?.includes("Request") || activeToast.title?.includes("Placed") ? "🔔" : activeToast.title?.includes("Progress") ? "🛠️" : activeToast.title?.includes("Completed") ? "⭐" : "✨"}
-            </div>
-
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center justify-between gap-2">
-                <h4 className="text-xs font-bold text-white truncate">{activeToast.title}</h4>
-                <button
-                  type="button"
-                  onClick={() => setActiveToast(null)}
-                  className="text-gray-400 hover:text-white text-xs font-bold p-0.5"
-                >
-                  ✕
-                </button>
-              </div>
-              <p className="text-xs text-gray-300 mt-1 leading-relaxed line-clamp-2">
-                {activeToast.message}
-              </p>
-            </div>
-          </div>
-        </div>
-      )}
     </NotificationContext.Provider>
   );
 }
