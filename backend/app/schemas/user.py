@@ -52,8 +52,22 @@ class ProviderProfileUpdate(BaseModel):
 
 
 class ProviderVerificationAction(BaseModel):
-    status: VerificationStatus  # APPROVED or REJECTED
+    status: VerificationStatus  # APPROVED, REJECTED, or SUSPENDED
     rejection_reason: Optional[str] = None
+
+
+class ProviderApplyRequest(BaseModel):
+    bio: Optional[str] = None
+    location: Optional[str] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
+    service_radius_km: Optional[float] = 15.0
+    working_hours: Optional[str] = "Mon-Sat: 09:00 AM - 07:00 PM"
+    portfolio_photos: Optional[List[str]] = None
+    emergency_available: Optional[bool] = False
+    experience_years: Optional[int] = 1
+    hourly_rate: Optional[float] = 49.99
+    booking_mode: Optional[UserBookingMode] = UserBookingMode.INSTANT_BOOKING
 
 
 class UserResponse(BaseModel):
@@ -65,6 +79,10 @@ class UserResponse(BaseModel):
     phone_number: Optional[str] = None
     role: UserRole
     is_active: bool
+
+    # Capability and Dual-Role Flags
+    is_provider: bool = False
+    can_switch_to_customer: bool = True
 
     # Referral Attributes
     referral_code: Optional[str] = None

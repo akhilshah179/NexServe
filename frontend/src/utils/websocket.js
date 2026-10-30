@@ -8,10 +8,15 @@ function getWebSocketBaseUrl() {
   return `${protocol}//${window.location.host}`;
 }
 
+function getTokenQuery() {
+  const token = sessionStorage.getItem("nexserve_token") || localStorage.getItem("nexserve_token");
+  return token ? `?token=${encodeURIComponent(token)}` : "";
+}
+
 export function createBookingSocket(bookingId, onMessage, onStatusChange) {
   if (!bookingId) return null;
 
-  const wsUrl = `${getWebSocketBaseUrl()}/ws/bookings/${bookingId}`;
+  const wsUrl = `${getWebSocketBaseUrl()}/ws/bookings/${bookingId}${getTokenQuery()}`;
   
   let ws = null;
   let isClosedManually = false;
@@ -81,7 +86,7 @@ export function createBookingSocket(bookingId, onMessage, onStatusChange) {
 export function createUserNotificationSocket(userId, onMessage, onStatusChange) {
   if (!userId) return null;
 
-  const wsUrl = `${getWebSocketBaseUrl()}/ws/user/${userId}`;
+  const wsUrl = `${getWebSocketBaseUrl()}/ws/user/${userId}${getTokenQuery()}`;
 
   let ws = null;
   let isClosedManually = false;

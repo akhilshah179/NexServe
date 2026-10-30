@@ -46,6 +46,15 @@ async def upload_booking_photos(
             detail="Maximum 5 photos allowed per upload batch.",
         )
 
+    if booking_id:
+        from app.models.booking import Booking
+        from app.models.user import UserRole
+        b = db.query(Booking).filter(Booking.id == booking_id).first()
+        if not b:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Booking not found.")
+        if current_user.role != UserRole.ADMIN and current_user.id not in [b.customer_id, b.provider_id]:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not authorized to attach photos to this booking.")
+
     saved_attachments: List[BookingAttachment] = []
 
     for file in files:

@@ -4,14 +4,17 @@ Booking Business Logic, State Machine, Real-Time Tracking, and Double Booking Pr
 
 import json
 import asyncio
+import threading
 from typing import List, Optional
 from datetime import datetime, timezone
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from fastapi import HTTPException, status
 
+_booking_concurrency_lock = threading.Lock()
+
 from app.models.booking import Booking, BookingStatus, BookingMode
-from app.models.user import UserRole, User, UserBookingMode
+from app.models.user import UserRole, User, UserBookingMode, VerificationStatus
 from app.models.address import Address
 from app.models.booking_tracking import BookingStatusHistory, BookingAttachment
 from app.schemas.booking import BookingCreate, BookingCancelRequest, BookingRescheduleRequest
@@ -146,13 +149,27 @@ def create_booking(db: Session, customer_id: int, booking_in: BookingCreate) -> 
     if not provider:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Service provider not found.")
 
+    # Prevent self-booking
+    if provider.id == customer_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="You cannot book your own service.",
+        )
+
+    # Prevent booking suspended or unapproved providers
+    if provider.verification_status != VerificationStatus.APPROVED or not provider.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This service provider is currently inactive or not approved to accept bookings.",
+        )
+
     selected_addr = None
     if booking_in.address_id:
         selected_addr = db.query(Address).filter(Address.id == booking_in.address_id, Address.user_id == customer_id).first()
         if not selected_addr:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Selected address was not found.")
 
-    # Double-booking prevention check: same provider, same date, same time_slot
+    # Concurrency-safe double-booking prevention check: same provider, same date, same time_slot
     target_date_val = booking_in.booking_date.date() if isinstance(booking_in.booking_date, datetime) else booking_in.booking_date
     target_date_str = target_date_val.strftime("%Y-%m-%d")
 
@@ -163,22 +180,30 @@ def create_booking(db: Session, customer_id: int, booking_in: BookingCreate) -> 
         BookingStatus.PROVIDER_ON_THE_WAY,
         BookingStatus.IN_PROGRESS,
     ]
-    all_provider_bookings = (
-        db.query(Booking)
-        .filter(
-            Booking.provider_id == provider.id,
-            Booking.status.in_(active_conflict_statuses),
+
+    with _booking_concurrency_lock:
+        if db.bind and db.bind.dialect.name == "postgresql":
+            try:
+                db.query(User).filter(User.id == provider.id).with_for_update().first()
+            except Exception:
+                pass
+
+        all_provider_bookings = (
+            db.query(Booking)
+            .filter(
+                Booking.provider_id == provider.id,
+                Booking.status.in_(active_conflict_statuses),
+            )
+            .all()
         )
-        .all()
-    )
-    for b in all_provider_bookings:
-        if b.booking_date and b.time_slot == booking_in.time_slot:
-            b_date_str = b.booking_date.strftime("%Y-%m-%d") if isinstance(b.booking_date, datetime) else str(b.booking_date)[:10]
-            if b_date_str == target_date_str:
-                raise HTTPException(
-                    status_code=status.HTTP_409_CONFLICT,
-                    detail=f"The time slot '{booking_in.time_slot}' is already booked for this provider on {target_date_str}. Please select another slot.",
-                )
+        for b in all_provider_bookings:
+            if b.booking_date and b.time_slot == booking_in.time_slot:
+                b_date_str = b.booking_date.strftime("%Y-%m-%d") if isinstance(b.booking_date, datetime) else str(b.booking_date)[:10]
+                if b_date_str == target_date_str:
+                    raise HTTPException(
+                        status_code=status.HTTP_409_CONFLICT,
+                        detail=f"The time slot '{booking_in.time_slot}' is already booked for this provider on {target_date_str}. Please select another slot.",
+                    )
 
     # ── Dynamic Pricing Calculation ──
     price_req = PricingCalculateRequest(
@@ -288,11 +313,20 @@ def create_booking(db: Session, customer_id: int, booking_in: BookingCreate) -> 
     return booking
 
 
-def get_user_bookings(db: Session, current_user: User, status_filter: Optional[BookingStatus] = None) -> List[Booking]:
-    """Retrieve bookings based on user role (Customer vs Provider vs Admin)."""
+def get_user_bookings(
+    db: Session,
+    current_user: User,
+    status_filter: Optional[BookingStatus] = None,
+    as_role: Optional[str] = None,
+) -> List[Booking]:
+    """Retrieve bookings based on user role and capability."""
     query = db.query(Booking)
-    if current_user.role == UserRole.ADMIN:
+    if current_user.role == UserRole.ADMIN and not as_role:
         pass
+    elif as_role == "customer":
+        query = query.filter(Booking.customer_id == current_user.id)
+    elif as_role == "provider":
+        query = query.filter(Booking.provider_id == current_user.id)
     elif current_user.role == UserRole.PROVIDER:
         query = query.filter(Booking.provider_id == current_user.id)
     else:
@@ -345,8 +379,36 @@ def transition_booking_status(
         BookingStatus.COMPLETED,
     ]
     if target_status in provider_only_statuses:
-        if current_user.role not in [UserRole.PROVIDER, UserRole.ADMIN]:
+        is_prov = (current_user.role in [UserRole.PROVIDER, UserRole.ADMIN] or getattr(current_user, "is_provider", False))
+        if not is_prov:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only providers or admins can update booking status to this state.")
+        if current_user.role != UserRole.ADMIN and current_user.verification_status != VerificationStatus.APPROVED:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Provider account is not approved (status: {current_user.verification_status.value}).",
+            )
+
+    # Re-validate slot availability upon confirmation to prevent collisions
+    if target_status == BookingStatus.CONFIRMED:
+        target_date_val = booking.booking_date.date() if isinstance(booking.booking_date, datetime) else booking.booking_date
+        target_date_str = target_date_val.strftime("%Y-%m-%d")
+        conflict = (
+            db.query(Booking)
+            .filter(
+                Booking.provider_id == booking.provider_id,
+                Booking.id != booking.id,
+                Booking.status.in_([BookingStatus.CONFIRMED, BookingStatus.PROVIDER_ON_THE_WAY, BookingStatus.IN_PROGRESS]),
+                Booking.time_slot == booking.time_slot,
+            )
+            .all()
+        )
+        for c in conflict:
+            c_date_str = c.booking_date.strftime("%Y-%m-%d") if isinstance(c.booking_date, datetime) else str(c.booking_date)[:10]
+            if c_date_str == target_date_str:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=f"Cannot confirm: The slot '{booking.time_slot}' on {target_date_str} is already occupied by another confirmed booking.",
+                )
 
     if target_status == BookingStatus.CANCELLED:
         reason = cancellation_reason or notes

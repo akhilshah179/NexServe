@@ -139,7 +139,10 @@ def list_pending_providers(
     """List provider applications waiting for admin approval."""
     return (
         db.query(User)
-        .filter(User.role == UserRole.PROVIDER, User.verification_status == VerificationStatus.PENDING)
+        .filter(
+            ((User.role == UserRole.PROVIDER) | (User.is_provider == True)),
+            User.verification_status == VerificationStatus.PENDING,
+        )
         .order_by(User.created_at.desc())
         .all()
     )
@@ -168,6 +171,36 @@ def reject_provider_account(
     action.status = VerificationStatus.REJECTED
     user = verify_provider(db, provider_id, action)
     log_admin_action(db, current_user.id, "reject_provider", "provider", provider_id, f"Rejected provider {user.full_name}: {action.rejection_reason}")
+    return user
+
+
+@router.post("/providers/{provider_id}/suspend", response_model=UserResponse)
+def suspend_provider_account(
+    provider_id: int,
+    action: Optional[ProviderVerificationAction] = None,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """
+    Suspend a provider account.
+    Provider listings are deactivated from search and bookings cannot be accepted.
+    Customer capabilities and existing booking histories remain intact.
+    """
+    reason = action.rejection_reason if action else "Suspended by administrator"
+    user = verify_provider(db, provider_id, ProviderVerificationAction(status=VerificationStatus.SUSPENDED, rejection_reason=reason))
+    log_admin_action(db, current_user.id, "suspend_provider", "provider", provider_id, f"Suspended provider {user.full_name}: {reason}")
+    return user
+
+
+@router.post("/providers/{provider_id}/unsuspend", response_model=UserResponse)
+def unsuspend_provider_account(
+    provider_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_admin),
+):
+    """Restore a suspended provider account."""
+    user = verify_provider(db, provider_id, ProviderVerificationAction(status=VerificationStatus.APPROVED))
+    log_admin_action(db, current_user.id, "unsuspend_provider", "provider", provider_id, f"Restored provider {user.full_name}")
     return user
 
 

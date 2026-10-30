@@ -23,6 +23,19 @@ export async function rejectProviderApi(providerId, rejectionReason) {
   return res.data;
 }
 
+export async function suspendProviderApi(providerId, reason = "") {
+  const res = await api.post(`/admin/providers/${providerId}/suspend`, {
+    status: "suspended",
+    rejection_reason: reason,
+  });
+  return res.data;
+}
+
+export async function unsuspendProviderApi(providerId) {
+  const res = await api.post(`/admin/providers/${providerId}/unsuspend`);
+  return res.data;
+}
+
 export async function getAllUsers(role = null, search = null) {
   const params = {};
   if (role) params.role = role;

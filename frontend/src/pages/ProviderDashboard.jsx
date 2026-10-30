@@ -72,8 +72,10 @@ import {
   Wrench,
   Star,
   UserCog,
+  AlertTriangle,
+  ArrowRight,
 } from "lucide-react";
-import { Avatar, Button, StatCard, Switch, Tabs, Reveal, useToast } from "../components/ui";
+import { Avatar, Button, ButtonLink, StatCard, Switch, Tabs, Reveal, useToast } from "../components/ui";
 import { formatINR, getErrorMessage } from "../lib/format";
 
 export default function ProviderDashboard() {
@@ -495,8 +497,72 @@ export default function ProviderDashboard() {
   const inTransitCount = bookings.filter((b) => ["confirmed", "provider_on_the_way", "in_progress"].includes(b.status)).length;
   const completedCount = bookings.filter((b) => b.status === "completed").length;
 
+  // Verification Status Checks
+  const isApproved = user?.verification_status === "approved";
+  const isPending = user?.verification_status === "pending";
+  const isSuspended = user?.verification_status === "suspended";
+  const isRejected = user?.verification_status === "rejected";
+
   return (
     <div className="pt-28 sm:pt-32 pb-24 container-page space-y-8">
+      {/* ═══ VERIFICATION STATUS BANNERS ═══ */}
+      {isPending && (
+        <div className="surface p-4 sm:p-5 border border-amber-500/30 bg-amber-500/[0.08] flex items-start sm:items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-amber-500/20 text-amber-400 flex items-center justify-center shrink-0">
+              <AlertTriangle className="w-5 h-5" />
+            </div>
+            <div>
+              <h3 className="text-sm font-semibold text-white">Application Under Administrator Review</h3>
+              <p className="text-xs text-ink-300 mt-0.5">
+                Your provider profile is currently pending review. Service listings and rentals cannot be published until approved. You can continue booking services as a customer.
+              </p>
+            </div>
+          </div>
+          <ButtonLink to="/dashboard" variant="secondary" size="sm" iconRight={ArrowRight}>
+            Customer Dashboard
+          </ButtonLink>
+        </div>
+      )}
+
+      {isSuspended && (
+        <div className="surface p-4 sm:p-5 border border-red-500/30 bg-red-500/[0.08] flex items-start sm:items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-red-500/20 text-red-400 flex items-center justify-center shrink-0">
+              <AlertTriangle className="w-5 h-5" />
+            </div>
+            <div>
+              <h3 className="text-sm font-semibold text-white">Provider Capabilities Suspended</h3>
+              <p className="text-xs text-ink-300 mt-0.5">
+                Your provider listing has been suspended by an administrator. Your customer bookings and account remain unaffected. Contact support for assistance.
+              </p>
+            </div>
+          </div>
+          <ButtonLink to="/dashboard" variant="secondary" size="sm" iconRight={ArrowRight}>
+            Customer Dashboard
+          </ButtonLink>
+        </div>
+      )}
+
+      {isRejected && (
+        <div className="surface p-4 sm:p-5 border border-red-500/30 bg-red-500/[0.08] flex items-start sm:items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-red-500/20 text-red-400 flex items-center justify-center shrink-0">
+              <AlertTriangle className="w-5 h-5" />
+            </div>
+            <div>
+              <h3 className="text-sm font-semibold text-white">Provider Application Rejected</h3>
+              <p className="text-xs text-ink-300 mt-0.5">
+                Your provider application was not approved. You can continue booking services and renting items as a customer.
+              </p>
+            </div>
+          </div>
+          <ButtonLink to="/dashboard" variant="secondary" size="sm" iconRight={ArrowRight}>
+            Customer Dashboard
+          </ButtonLink>
+        </div>
+      )}
+
       {/* ═══ HEADER ═══ */}
       <Reveal y={12} className="flex flex-col xl:flex-row xl:items-end justify-between gap-6">
         <div className="flex items-center gap-4 min-w-0">
@@ -505,8 +571,14 @@ export default function ProviderDashboard() {
             <p className="eyebrow mb-2">Provider workspace</p>
             <h1 className="text-3xl sm:text-4xl font-semibold text-white truncate">{user?.full_name?.split(" ")[0] || "Welcome"}</h1>
             <p className="text-sm text-ink-400 mt-1 flex items-center gap-2">
-              <BadgeCheck className="w-4 h-4 text-accent-400" aria-hidden="true" />
-              Verified partner · Manage jobs, rentals, availability and earnings
+              <BadgeCheck className={`w-4 h-4 ${isApproved ? "text-accent-400" : "text-ink-500"}`} aria-hidden="true" />
+              {isApproved
+                ? "Verified partner · Manage jobs, rentals, availability and earnings"
+                : isPending
+                ? "Pending approval · Profile awaiting admin review"
+                : isSuspended
+                ? "Suspended partner · Capabilities temporarily disabled"
+                : "Partner portal"}
             </p>
           </div>
         </div>
@@ -514,19 +586,43 @@ export default function ProviderDashboard() {
           <div className="surface px-4 py-3 min-w-[260px]">
             <Switch
               checked={bookingMode === "instant_booking"}
-              onChange={() => !updatingMode && handleToggleBookingMode()}
-              disabled={updatingMode}
+              onChange={() => !updatingMode && isApproved && handleToggleBookingMode()}
+              disabled={updatingMode || !isApproved}
               label={bookingMode === "instant_booking" ? "Instant booking" : "Request mode"}
-              description={bookingMode === "instant_booking" ? "Bookings confirm automatically" : "You approve each request"}
+              description={!isApproved ? "Disabled until approved" : bookingMode === "instant_booking" ? "Bookings confirm automatically" : "You approve each request"}
             />
           </div>
           <div className="flex gap-2">
-            <Button icon={Plus} onClick={() => setShowAddServiceModal(true)}>
+            <Button
+              icon={Plus}
+              onClick={() => {
+                if (!isApproved) {
+                  toast.error("Your provider profile must be approved before publishing new services.");
+                  return;
+                }
+                setShowAddServiceModal(true);
+              }}
+              disabled={!isApproved}
+            >
               Add service
             </Button>
-            <Button variant="rental" icon={Package} onClick={() => setShowAddRentalModal(true)}>
+            <Button
+              variant="rental"
+              icon={Package}
+              onClick={() => {
+                if (!isApproved) {
+                  toast.error("Your provider profile must be approved before listing rental items.");
+                  return;
+                }
+                setShowAddRentalModal(true);
+              }}
+              disabled={!isApproved}
+            >
               List rental
             </Button>
+            <ButtonLink to="/dashboard" variant="secondary" iconRight={ArrowRight}>
+              Customer view
+            </ButtonLink>
           </div>
         </div>
       </Reveal>

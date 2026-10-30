@@ -22,13 +22,26 @@ export default function ProtectedRoute({ children, allowedRoles }) {
     return <Navigate to="/login" state={{ from: location }} replace />;
   }
 
-  if (allowedRoles && !allowedRoles.includes(user.role)) {
-    if (user.role === "admin") {
-      return <Navigate to="/admin/dashboard" replace />;
-    } else if (user.role === "provider") {
-      return <Navigate to="/provider/dashboard" replace />;
-    } else {
-      return <Navigate to="/dashboard" replace />;
+  if (allowedRoles) {
+    // Every authenticated user has customer capability
+    const hasCustomerCap = true;
+    const hasProviderCap = user.role === "provider" || user.is_provider || user.role === "admin";
+    const hasAdminCap = user.role === "admin";
+
+    const isAuthorized =
+      (allowedRoles.includes("customer") && hasCustomerCap) ||
+      (allowedRoles.includes("provider") && hasProviderCap) ||
+      (allowedRoles.includes("admin") && hasAdminCap) ||
+      allowedRoles.includes(user.role);
+
+    if (!isAuthorized) {
+      if (user.role === "admin") {
+        return <Navigate to="/admin/dashboard" replace />;
+      } else if (user.role === "provider" || user.is_provider) {
+        return <Navigate to="/provider/dashboard" replace />;
+      } else {
+        return <Navigate to="/dashboard" replace />;
+      }
     }
   }
 

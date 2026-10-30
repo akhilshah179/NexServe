@@ -3,6 +3,7 @@
 from datetime import datetime, timezone
 from enum import Enum
 from sqlalchemy import Column, DateTime, Enum as SQLEnum, ForeignKey, Integer, String
+from sqlalchemy.orm import relationship
 from app.database import Base
 
 
@@ -18,7 +19,8 @@ class Payment(Base):
     __tablename__ = "payments"
 
     id = Column(Integer, primary_key=True, index=True)
-    booking_id = Column(Integer, ForeignKey("bookings.id", ondelete="CASCADE"), nullable=False, index=True)
+    booking_id = Column(Integer, ForeignKey("bookings.id", ondelete="CASCADE"), nullable=True, index=True)
+    rental_booking_id = Column(Integer, ForeignKey("rental_bookings.id", ondelete="CASCADE"), nullable=True, index=True)
     razorpay_order_id = Column(String, unique=True, nullable=False, index=True)
     razorpay_payment_id = Column(String, unique=True, nullable=True, index=True)
     razorpay_signature = Column(String, nullable=True)
@@ -33,4 +35,8 @@ class Payment(Base):
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     verified_at = Column(DateTime(timezone=True), nullable=True)
     updated_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+    # Relationships
+    booking = relationship("Booking", backref="payment_records")
+    rental_booking = relationship("RentalBooking", backref="payment_records")
 

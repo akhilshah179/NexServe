@@ -121,9 +121,9 @@ def get_single_rental_item(item_id: int, db: Session = Depends(get_db)):
 def create_new_rental_item(
     item_in: RentalItemCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_provider),
 ):
-    """Create a new physical item listing for rent (Provider/Admin)."""
+    """Create a new physical item listing for rent (Approved Provider/Admin only)."""
     return create_rental_item(db, provider_id=current_user.id, item_in=item_in)
 
 
@@ -233,12 +233,13 @@ def book_rental_item(
 
 @router.get("/bookings/my", response_model=List[RentalBookingResponse])
 def list_my_rental_bookings(
+    role_view: Optional[str] = Query(None, description="View as 'customer' or 'provider'"),
     status_filter: Optional[RentalBookingStatus] = Query(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     """List rental bookings for current customer, provider, or admin."""
-    return get_user_rental_bookings(db, current_user=current_user, status_filter=status_filter)
+    return get_user_rental_bookings(db, current_user=current_user, status_filter=status_filter, as_role=role_view)
 
 
 @router.get("/bookings/me", response_model=List[RentalBookingResponse])
@@ -247,8 +248,8 @@ def list_me_rental_bookings(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    """List rental bookings for current authenticated customer."""
-    return get_user_rental_bookings(db, current_user=current_user, status_filter=status_filter)
+    """List rental bookings for current authenticated customer (items rented)."""
+    return get_user_rental_bookings(db, current_user=current_user, status_filter=status_filter, as_role="customer")
 
 
 @router.get("/bookings/provider", response_model=List[RentalBookingResponse])
@@ -257,8 +258,8 @@ def list_provider_rental_bookings(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_provider),
 ):
-    """List rental bookings for authenticated provider."""
-    return get_user_rental_bookings(db, current_user=current_user, status_filter=status_filter)
+    """List rental bookings for authenticated provider (items provided to fulfill)."""
+    return get_user_rental_bookings(db, current_user=current_user, status_filter=status_filter, as_role="provider")
 
 
 @router.get("/bookings/{booking_id}", response_model=RentalBookingResponse)

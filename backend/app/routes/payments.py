@@ -29,7 +29,7 @@ from app.services.notification_service import create_notification
 
 router = APIRouter(prefix="/payments", tags=["Payments"])
 
-PLATFORM_COMMISSION_PERCENT = 10  # 10% platform fee on bookings
+PLATFORM_COMMISSION_PERCENT = 15  # 15% platform commission on successful service and rental transactions
 
 
 def _require_razorpay() -> None:
@@ -186,6 +186,35 @@ def create_rental_payment_order(
         order_id = f"order_demo_rent_{rental_booking.id}_{int(datetime.now(timezone.utc).timestamp())}"
         key_id = "rzp_test_demo_key"
 
+    # Track 15% platform commission on the rental fee portion (excluding refundable deposit)
+    rental_fee_amount = Decimal(str(rental_booking.final_rental_amount))
+    rental_fee_paise = int(
+        (rental_fee_amount * Decimal("100")).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
+    )
+    commission_paise = int(rental_fee_paise * (PLATFORM_COMMISSION_PERCENT / 100.0))
+
+    payment = db.query(Payment).filter(Payment.rental_booking_id == rental_booking.id).first()
+    if not payment:
+        payment = Payment(
+            booking_id=None,
+            rental_booking_id=rental_booking.id,
+            razorpay_order_id=order_id,
+            amount_paise=amount_paise,
+            platform_commission_paise=commission_paise,
+            receipt_number=receipt,
+            currency=settings.RAZORPAY_CURRENCY,
+            status=PaymentStatus.CREATED,
+        )
+        db.add(payment)
+    else:
+        payment.razorpay_order_id = order_id
+        payment.amount_paise = amount_paise
+        payment.platform_commission_paise = commission_paise
+        payment.receipt_number = receipt
+        payment.status = PaymentStatus.CREATED
+
+    db.commit()
+
     return PaymentOrderResponse(
         razorpay_order_id=order_id,
         amount=amount_paise,
@@ -233,6 +262,16 @@ def verify_rental_payment(
     rental_booking.status = RentalBookingStatus.CONFIRMED
     if rental_booking.security_deposit_record:
         rental_booking.security_deposit_record.status = SecurityDepositStatus.HELD
+
+    # Update Payment record for auditability
+    payment = db.query(Payment).filter(
+        (Payment.rental_booking_id == rental_booking.id) | (Payment.razorpay_order_id == payload.razorpay_order_id)
+    ).first()
+    if payment:
+        payment.status = PaymentStatus.VERIFIED
+        payment.razorpay_payment_id = payload.razorpay_payment_id
+        payment.razorpay_signature = payload.razorpay_signature
+        payment.verified_at = datetime.now(timezone.utc)
 
     db.commit()
     db.refresh(rental_booking)
@@ -388,11 +427,14 @@ def list_payments(
     if current_user.role == UserRole.ADMIN:
         return db.query(Payment).order_by(Payment.created_at.desc()).all()
 
-    # Customers see their own booking payments
+    # Customers see their own booking and rental payments
     return (
         db.query(Payment)
-        .join(Payment.booking)
-        .filter(Booking.customer_id == current_user.id)
+        .outerjoin(Booking, Payment.booking_id == Booking.id)
+        .outerjoin(RentalBooking, Payment.rental_booking_id == RentalBooking.id)
+        .filter(
+            (Booking.customer_id == current_user.id) | (RentalBooking.customer_id == current_user.id)
+        )
         .order_by(Payment.created_at.desc())
         .all()
     )

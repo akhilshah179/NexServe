@@ -21,8 +21,8 @@ from app.services.service_service import (
     get_service_by_id,
     create_service,
 )
-from app.routes.dependencies import get_current_user, require_role
-from app.models.user import User, UserRole
+from app.routes.dependencies import get_current_user, require_role, require_provider
+from app.models.user import User, UserRole, VerificationStatus
 from app.models.service import Service, Category
 
 router = APIRouter(
@@ -83,9 +83,9 @@ def get_service(service_id: int, db: Session = Depends(get_db)):
 def add_service(
     service_in: ServiceCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_role([UserRole.PROVIDER, UserRole.ADMIN])),
+    current_user: User = Depends(require_provider),
 ):
-    """Create a new service offering (Provider or Admin)."""
+    """Create a new service offering (Approved Provider or Admin)."""
     return create_service(db, service_in, provider_id=current_user.id)
 
 
@@ -95,20 +95,20 @@ def list_providers_by_category(
     category_id: int,
     db: Session = Depends(get_db),
 ):
-    """List all providers who offer services in a specific category."""
+    """List all approved providers who offer services in a specific category."""
     category = db.query(Category).filter(Category.id == category_id).first()
     if not category:
         raise HTTPException(status_code=404, detail="Category not found")
 
-    # Find unique providers who have active services in this category
+    # Find unique providers who have active services in this category and are approved
     providers = (
         db.query(User)
         .join(Service, Service.provider_id == User.id)
         .filter(
             Service.category_id == category_id,
             Service.is_active == True,
-            User.role == UserRole.PROVIDER,
             User.is_active == True,
+            User.verification_status == VerificationStatus.APPROVED,
         )
         .distinct()
         .all()

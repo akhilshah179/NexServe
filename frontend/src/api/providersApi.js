@@ -15,7 +15,25 @@ export async function updateProviderProfileApi(profileData) {
   return res.data;
 }
 
+export async function applyToBecomeProviderApi(applyData) {
+  const res = await api.post("/providers/apply", applyData);
+  return res.data;
+}
+
 export async function verifyProviderApi(providerId, actionData) {
   const res = await api.post(`/providers/${providerId}/verify`, actionData);
+  return res.data;
+}
+
+export async function suspendProviderApi(providerId, reason = "") {
+  const res = await api.post(`/admin/providers/${providerId}/suspend`, {
+    status: "suspended",
+    rejection_reason: reason,
+  });
+  return res.data;
+}
+
+export async function unsuspendProviderApi(providerId) {
+  const res = await api.post(`/admin/providers/${providerId}/unsuspend`);
   return res.data;
 }

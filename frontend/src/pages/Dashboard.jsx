@@ -16,6 +16,7 @@ import BookingLiveTracker from "../components/booking/BookingLiveTracker";
 import ReferralCard from "../components/referrals/ReferralCard";
 import RecommendationSection from "../components/recommendations/RecommendationSection";
 import BookingWizardModal from "../components/booking/BookingWizardModal";
+import { applyToBecomeProviderApi } from "../api/providersApi";
 import {
   CalendarClock,
   MessageSquare,
@@ -28,6 +29,8 @@ import {
   CreditCard,
   Plus,
   Radio,
+  Wrench,
+  ShieldCheck,
 } from "lucide-react";
 import CategoryCard from "../components/cards/CategoryCard";
 import {
@@ -52,7 +55,7 @@ import { serviceVisual } from "../lib/visuals";
 import { formatINR, formatDate } from "../lib/format";
 
 export default function Dashboard() {
-  const { user } = useAuth();
+  const { user, updateUser } = useAuth();
   const { lastEvent } = useNotifications();
   const [bookings, setBookings] = useState([]);
   const [categories, setCategories] = useState([]);
@@ -69,6 +72,18 @@ export default function Dashboard() {
   const [reviewBooking, setReviewBooking] = useState(null);
   const [wizardService, setWizardService] = useState(null);
   const [trackedBooking, setTrackedBooking] = useState(null);
+
+  // Dual-role Provider Application State
+  const [showApplyModal, setShowApplyModal] = useState(false);
+  const [applying, setApplying] = useState(false);
+  const [applyForm, setApplyForm] = useState({
+    business_name: "",
+    category_id: 1,
+    hourly_rate: 499,
+    bio: "",
+  });
+
+  const isProviderAccount = user?.is_provider || user?.role === "provider";
 
   const loadData = async () => {
     try {
@@ -140,6 +155,35 @@ export default function Dashboard() {
     );
   };
 
+  const handleApplySubmit = async (e) => {
+    e.preventDefault();
+    if (!applyForm.business_name.trim()) {
+      toast.error("Please enter your business or professional name.");
+      return;
+    }
+    setApplying(true);
+    try {
+      await applyToBecomeProviderApi({
+        business_name: applyForm.business_name.trim(),
+        category_id: Number(applyForm.category_id) || 1,
+        hourly_rate: Number(applyForm.hourly_rate) || 499,
+        bio: applyForm.bio.trim() || "Experienced professional ready to serve NexServe customers.",
+      });
+      toast.success("Application Submitted!", "Your provider profile is now pending admin review. You can continue using customer features.");
+      updateUser({
+        ...user,
+        is_provider: true,
+        verification_status: "pending",
+        business_name: applyForm.business_name.trim(),
+      });
+      setShowApplyModal(false);
+    } catch (err) {
+      toast.error("Application Failed", err.message || "Failed to submit provider application.");
+    } finally {
+      setApplying(false);
+    }
+  };
+
   const totalSpent = bookings
     .filter((b) => b.status === "completed" || b.status === "confirmed")
     .reduce((sum, b) => sum + (Number(b.total_amount) || 0), 0);
@@ -202,6 +246,52 @@ export default function Dashboard() {
       <div className="container-page space-y-12">
         {loadError && (
           <ErrorState title="Your dashboard didn't fully load" onRetry={() => { setLoading(true); loadData(); }} />
+        )}
+
+        {/* Dual-role Provider Status or Invitation */}
+        {isProviderAccount ? (
+          <div className="surface p-5 sm:p-6 border border-white/[0.08] flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+            <div className="flex items-center gap-3.5">
+              <div className="w-10 h-10 rounded-xl bg-accent-500/10 text-accent-400 flex items-center justify-center shrink-0">
+                <Wrench className="w-5 h-5" />
+              </div>
+              <div>
+                <div className="flex items-center gap-2">
+                  <h3 className="text-sm font-semibold text-white">Provider Capability Active</h3>
+                  <StatusBadge status={user?.verification_status || "pending"} size="xs" />
+                </div>
+                <p className="text-xs text-ink-400 mt-0.5">
+                  {user?.verification_status === "approved"
+                    ? "Your provider profile is verified and active. You can fulfill service jobs or list rental items."
+                    : user?.verification_status === "suspended"
+                    ? "Your provider capabilities are currently suspended. Your customer account and bookings remain unaffected."
+                    : "Your provider application is awaiting administrator verification. In the meantime, you can continue booking services as a customer."}
+                </p>
+              </div>
+            </div>
+            {user?.verification_status === "approved" ? (
+              <ButtonLink to="/provider" variant="secondary" size="sm" iconRight={ArrowRight}>
+                Open Provider Workspace
+              </ButtonLink>
+            ) : null}
+          </div>
+        ) : (
+          <div className="surface p-5 sm:p-6 border border-accent-500/20 bg-gradient-to-r from-accent-500/[0.06] to-transparent flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+            <div className="flex items-start sm:items-center gap-3.5">
+              <div className="w-10 h-10 rounded-xl bg-accent-500/15 text-accent-400 flex items-center justify-center shrink-0">
+                <Wrench className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="text-sm font-semibold text-white">Earn with NexServe</h3>
+                <p className="text-xs text-ink-400 mt-0.5">
+                  Provide services or rent out gear using this account. No duplicate logins or lost booking history.
+                </p>
+              </div>
+            </div>
+            <Button size="sm" icon={ShieldCheck} onClick={() => setShowApplyModal(true)}>
+              Apply to Become a Provider
+            </Button>
+          </div>
         )}
 
         {/* Live tracker */}
@@ -349,6 +439,85 @@ export default function Dashboard() {
           }}
         />
       )}
+
+      {/* Become Provider Modal */}
+      <Modal
+        open={showApplyModal}
+        onClose={() => !applying && setShowApplyModal(false)}
+        title="Become a NexServe Provider"
+        size="md"
+      >
+        <form onSubmit={handleApplySubmit} className="space-y-4">
+          <p className="text-xs text-ink-400">
+            Expand your account to provide services or list rentals. Your existing customer profile, reviews, and bookings will be fully preserved.
+          </p>
+
+          <div>
+            <label className="block text-xs font-medium text-ink-300 mb-1">Business or Professional Name</label>
+            <input
+              type="text"
+              required
+              className="w-full bg-white/[0.04] border border-white/[0.1] rounded-lg px-3 py-2 text-sm text-white placeholder-ink-500 focus:outline-none focus:border-accent-500"
+              placeholder="e.g. Apex Home Repairs / John Doe"
+              value={applyForm.business_name}
+              onChange={(e) => setApplyForm({ ...applyForm, business_name: e.target.value })}
+            />
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-medium text-ink-300 mb-1">Primary Category</label>
+              <select
+                className="w-full bg-slate-900 border border-white/[0.1] rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-accent-500"
+                value={applyForm.category_id}
+                onChange={(e) => setApplyForm({ ...applyForm, category_id: e.target.value })}
+              >
+                {categories.length > 0 ? (
+                  categories.map((c) => (
+                    <option key={c.id} value={c.id} className="bg-slate-900 text-white">
+                      {c.name}
+                    </option>
+                  ))
+                ) : (
+                  <option value={1} className="bg-slate-900 text-white">General Services</option>
+                )}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-ink-300 mb-1">Starting Hourly Rate (₹)</label>
+              <input
+                type="number"
+                min="99"
+                max="10000"
+                required
+                className="w-full bg-white/[0.04] border border-white/[0.1] rounded-lg px-3 py-2 text-sm text-white placeholder-ink-500 focus:outline-none focus:border-accent-500"
+                value={applyForm.hourly_rate}
+                onChange={(e) => setApplyForm({ ...applyForm, hourly_rate: e.target.value })}
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium text-ink-300 mb-1">Bio / Experience Summary</label>
+            <textarea
+              rows={3}
+              className="w-full bg-white/[0.04] border border-white/[0.1] rounded-lg px-3 py-2 text-sm text-white placeholder-ink-500 focus:outline-none focus:border-accent-500 resize-none"
+              placeholder="Describe your skills, years of experience, or equipment available..."
+              value={applyForm.bio}
+              onChange={(e) => setApplyForm({ ...applyForm, bio: e.target.value })}
+            />
+          </div>
+
+          <div className="pt-2 flex justify-end gap-2.5">
+            <Button variant="ghost" size="sm" type="button" onClick={() => setShowApplyModal(false)} disabled={applying}>
+              Cancel
+            </Button>
+            <Button size="sm" type="submit" loading={applying} loadingText="Submitting...">
+              Submit Application
+            </Button>
+          </div>
+        </form>
+      </Modal>
     </div>
   );
 }

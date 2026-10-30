@@ -84,7 +84,8 @@ export default function Navbar() {
     navigate("/login");
   };
 
-  const isCustomer = user && (user.role === "customer" || user.role === "admin");
+  const isProvider = user && (user.role === "provider" || user.is_provider || user.role === "admin");
+  const isAdmin = user && user.role === "admin";
   const dashboardPath =
     user?.role === "admin" ? "/admin/dashboard" : user?.role === "provider" ? "/provider/dashboard" : "/dashboard";
 
@@ -194,19 +195,25 @@ export default function Navbar() {
                           </div>
                         </div>
                         <div className="h-px bg-white/[0.06] my-1" />
-                        <MenuLink to={dashboardPath} icon={LayoutDashboard}>
-                          Dashboard
-                        </MenuLink>
-                        {isCustomer && (
-                          <>
-                            <MenuLink to="/history" icon={Receipt}>
-                              Service history
-                            </MenuLink>
-                            <MenuLink to="/my-rentals" icon={Package}>
-                              My rentals
-                            </MenuLink>
-                          </>
+                        {isAdmin && (
+                          <MenuLink to="/admin/dashboard" icon={LayoutDashboard}>
+                            Admin Dashboard
+                          </MenuLink>
                         )}
+                        {isProvider && (
+                          <MenuLink to="/provider/dashboard" icon={Wrench}>
+                            Provider Dashboard
+                          </MenuLink>
+                        )}
+                        <MenuLink to="/dashboard" icon={LayoutDashboard}>
+                          Customer Dashboard
+                        </MenuLink>
+                        <MenuLink to="/history" icon={Receipt}>
+                          Service history
+                        </MenuLink>
+                        <MenuLink to="/my-rentals" icon={Package}>
+                          My rentals
+                        </MenuLink>
                         <div className="h-px bg-white/[0.06] my-1" />
                         <button
                           type="button"
@@ -290,8 +297,21 @@ export default function Navbar() {
             <DrawerLink to="/rentals" icon={Package} active={location.pathname.startsWith("/rentals")}>
               Rentals
             </DrawerLink>
-            {isCustomer && (
+            {user && (
               <>
+                <DrawerLink to="/dashboard" icon={LayoutDashboard} active={location.pathname === "/dashboard"}>
+                  Customer Dashboard
+                </DrawerLink>
+                {isProvider && (
+                  <DrawerLink to="/provider/dashboard" icon={Wrench} active={location.pathname === "/provider/dashboard"}>
+                    Provider Dashboard
+                  </DrawerLink>
+                )}
+                {isAdmin && (
+                  <DrawerLink to="/admin/dashboard" icon={LayoutDashboard} active={location.pathname === "/admin/dashboard"}>
+                    Admin Dashboard
+                  </DrawerLink>
+                )}
                 <DrawerLink to="/history" icon={Receipt} active={location.pathname === "/history"}>
                   Service history
                 </DrawerLink>
@@ -299,11 +319,6 @@ export default function Navbar() {
                   My rentals
                 </DrawerLink>
               </>
-            )}
-            {user && (
-              <DrawerLink to={dashboardPath} icon={LayoutDashboard} active={location.pathname === dashboardPath}>
-                Dashboard
-              </DrawerLink>
             )}
             <DrawerLink to="/about" icon={Info} active={location.pathname === "/about"}>
               About

@@ -44,12 +44,13 @@ def book_service(
 
 @router.get("/my", response_model=List[BookingResponse])
 def list_my_bookings(
+    role_view: Optional[str] = Query(None, description="View bookings as 'customer' or 'provider'"),
     status_filter: Optional[BookingStatus] = Query(None),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     """Retrieve bookings for current customer, provider, or admin."""
-    return get_user_bookings(db, current_user, status_filter=status_filter)
+    return get_user_bookings(db, current_user, status_filter=status_filter, as_role=role_view)
 
 
 @router.get("/{booking_id}", response_model=BookingResponse)

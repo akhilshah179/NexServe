@@ -4,7 +4,10 @@ Rental Marketplace Service — Availability, Pricing, Lifecycles, Deposits, and 
 
 import json
 import logging
+import threading
 from typing import List, Optional, Tuple, Union, Any
+
+_rental_concurrency_lock = threading.Lock()
 from datetime import datetime, timezone, date
 from sqlalchemy.orm import Session
 from sqlalchemy import func, or_, and_
@@ -528,10 +531,11 @@ def create_rental_booking(db: Session, customer_id: int, booking_in: RentalBooki
     req_end = _normalize_date(booking_in.end_date)
     booking_qty = max(1, booking_in.quantity or 1)
 
-    # Overlap conflict check
-    is_avail, conflict_count, msg = check_rental_item_availability(db, item.id, req_start, req_end, quantity=booking_qty)
-    if not is_avail:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=msg)
+    # Overlap conflict check with concurrency lock
+    with _rental_concurrency_lock:
+        is_avail, conflict_count, msg = check_rental_item_availability(db, item.id, req_start, req_end, quantity=booking_qty)
+        if not is_avail:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=msg)
 
     # Delivery address validation
     is_delivery = (
@@ -634,10 +638,15 @@ def get_user_rental_bookings(
     db: Session,
     current_user: User,
     status_filter: Optional[RentalBookingStatus] = None,
+    as_role: Optional[str] = None,
 ) -> List[RentalBooking]:
     query = db.query(RentalBooking)
-    if current_user.role == UserRole.ADMIN:
+    if current_user.role == UserRole.ADMIN and not as_role:
         pass
+    elif as_role == "customer":
+        query = query.filter(RentalBooking.customer_id == current_user.id)
+    elif as_role == "provider":
+        query = query.filter(RentalBooking.provider_id == current_user.id)
     elif current_user.role == UserRole.PROVIDER:
         query = query.filter(RentalBooking.provider_id == current_user.id)
     else:

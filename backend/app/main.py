@@ -51,10 +51,22 @@ def _migrate_columns():
             "referral_code": "TEXT",
             "referral_credits": "FLOAT DEFAULT 0.0",
             "booking_mode": "TEXT DEFAULT 'instant_booking'",
+            "is_provider": "BOOLEAN DEFAULT 0",
         }
         for col, col_type in user_cols.items():
             try:
                 conn.execute(text(f"ALTER TABLE users ADD COLUMN {col} {col_type}"))
+                conn.commit()
+            except Exception:
+                pass  # Column already exists
+
+        # Check payments table columns
+        payment_cols = {
+            "rental_booking_id": "INTEGER",
+        }
+        for col, col_type in payment_cols.items():
+            try:
+                conn.execute(text(f"ALTER TABLE payments ADD COLUMN {col} {col_type}"))
                 conn.commit()
             except Exception:
                 pass  # Column already exists

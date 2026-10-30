@@ -19,6 +19,7 @@ class VerificationStatus(str, Enum):
     PENDING = "pending"
     APPROVED = "approved"
     REJECTED = "rejected"
+    SUSPENDED = "suspended"
 
 
 class UserBookingMode(str, Enum):
@@ -44,6 +45,7 @@ class User(Base):
     referral_credits = Column(Float, default=0.0, nullable=False)
 
     # Provider Specific Metadata & Verification
+    is_provider = Column(Boolean, default=False, nullable=False)
     booking_mode = Column(FlexibleEnum(UserBookingMode), default=UserBookingMode.INSTANT_BOOKING, nullable=False)
     verification_status = Column(FlexibleEnum(VerificationStatus), default=VerificationStatus.APPROVED, nullable=False)
     rejection_reason = Column(Text, nullable=True)
