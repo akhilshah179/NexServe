@@ -11,6 +11,7 @@
 [![SQLAlchemy](https://img.shields.io/badge/SQLAlchemy-2.0+-D71F00.svg?style=for-the-badge&logo=sqlalchemy&logoColor=white)](https://www.sqlalchemy.org)
 [![Redis](https://img.shields.io/badge/Redis-7+-DC382D.svg?style=for-the-badge&logo=redis&logoColor=white)](https://redis.io)
 [![Razorpay](https://img.shields.io/badge/Razorpay-Gateway-0C2340.svg?style=for-the-badge&logo=razorpay&logoColor=white)](https://razorpay.com)
+[![Tests: 46 Passed](https://img.shields.io/badge/Tests-46%20Passed-brightgreen.svg?style=for-the-badge&logo=pytest&logoColor=white)](https://github.com/akhilshah179/NexServe)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge)](https://opensource.org/licenses/MIT)
 
 <p align="center">
@@ -57,9 +58,11 @@
 Modern urban living requires fast, reliable, and transparent access to essential home and lifestyle services. **NexServe** bridges the gap between consumers and skilled service professionals through an automated, secure, and intuitive digital marketplace.
 
 ### Why NexServe?
+- **Unified Dual-Role Identity**: Any customer can become a verified provider without creating separate accounts or losing past history, and providers can book services or rent gear as customers.
 - **Zero-Friction Discovery**: Real-time category filtering, provider comparison, rating distribution, and transparent pricing.
-- **Smart Scheduling**: Granular slot-based provider availability and collision-free booking state machine.
-- **Financial Trust**: Built-in Razorpay checkout with signature verification and order tracking.
+- **Smart Scheduling & Concurrency Safety**: Granular slot-based provider availability, row-level concurrency locking (`with_for_update`), and collision-free booking state machine.
+- **Financial Trust & 15% Platform Commission**: Built-in Razorpay checkout with server-side signature verification, separate escrow handling for security deposits, and authoritative 15% commission accounting.
+- **Audited Security & Access Control**: Authenticated WebSockets, IDOR protection on attachments, and complete role isolation.
 - **Role-Based Governance**: Dedicated operational views for Customers, Providers, and Platform Admins.
 - **Automated Fallback**: Robust database layer supporting PostgreSQL in production with automatic fallback to SQLite for local development.
 
