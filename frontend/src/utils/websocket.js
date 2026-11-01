@@ -4,6 +4,19 @@
  */
 
 function getWebSocketBaseUrl() {
+  if (import.meta.env.VITE_WS_BASE_URL) {
+    return import.meta.env.VITE_WS_BASE_URL.replace(/\/+$/, "");
+  }
+  const apiBase = import.meta.env.VITE_API_BASE_URL;
+  if (apiBase && apiBase.startsWith("http")) {
+    try {
+      const parsed = new URL(apiBase);
+      const wsProto = parsed.protocol === "https:" ? "wss:" : "ws:";
+      return `${wsProto}//${parsed.host}`;
+    } catch {
+      // fallback to location
+    }
+  }
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
   return `${protocol}//${window.location.host}`;
 }

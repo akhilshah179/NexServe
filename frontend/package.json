@@ -4,6 +4,7 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
+    "start": "serve -s dist -l $PORT",
     "dev": "vite",
     "build": "vite build",
     "lint": "oxlint",
@@ -18,6 +19,7 @@
     "react-dom": "^19.2.8",
     "react-icons": "^5.7.0",
     "react-router-dom": "^7.18.2",
+    "serve": "^14.2.6",
     "tailwindcss": "^4.3.3"
   },
   "devDependencies": {
