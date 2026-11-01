@@ -8,6 +8,8 @@ from sqlalchemy.orm import declarative_base, sessionmaker, Session
 from app.core.config import settings
 
 db_url = settings.DATABASE_URL
+if db_url.startswith("postgres://"):
+    db_url = db_url.replace("postgres://", "postgresql://", 1)
 
 # Handle sqlite specific connection arguments if sqlite is used
 connect_args = {}

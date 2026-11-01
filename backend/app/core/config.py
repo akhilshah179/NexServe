@@ -15,6 +15,9 @@ HOW IT WORKS:
 4. Import `settings` anywhere in the app to access config
 """
 
+import json
+from typing import List, Union
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -50,8 +53,33 @@ class Settings(BaseSettings):
     RAZORPAY_CURRENCY: str = "INR"
 
     # ── CORS ─────────────────────────────────────────────
-    # Comma-separated origins allowed to call this API
-    CORS_ORIGINS: list[str] = ["http://localhost:5173", "http://localhost:3000"]
+    # Supports JSON array strings, comma-separated strings, or single URL strings
+    CORS_ORIGINS: Union[List[str], str] = [
+        "https://nexserve-frontend.onrender.com",
+        "http://localhost:5173",
+        "http://localhost:3000",
+    ]
+
+    @field_validator("CORS_ORIGINS", mode="after")
+    @classmethod
+    def assemble_cors_origins(cls, v: Union[str, List[str]]) -> List[str]:
+        origins = []
+        if isinstance(v, str):
+            v_clean = v.strip()
+            if v_clean.startswith("[") and v_clean.endswith("]"):
+                try:
+                    origins = json.loads(v_clean)
+                except Exception:
+                    origins = [i.strip() for i in v_clean.strip("[]").split(",") if i.strip()]
+            else:
+                origins = [i.strip().strip("\"'") for i in v_clean.split(",") if i.strip()]
+        elif isinstance(v, list):
+            origins = list(v)
+
+        # Always guarantee production frontend URL is present
+        if "https://nexserve-frontend.onrender.com" not in origins:
+            origins.append("https://nexserve-frontend.onrender.com")
+        return origins
 
     # ── Pydantic Settings Config ─────────────────────────
     # This tells pydantic-settings WHERE to find the .env file

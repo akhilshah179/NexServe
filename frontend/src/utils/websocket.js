@@ -17,6 +17,9 @@ function getWebSocketBaseUrl() {
       // fallback to location
     }
   }
+  if (import.meta.env.PROD) {
+    return "wss://nexserve.onrender.com";
+  }
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
   return `${protocol}//${window.location.host}`;
 }

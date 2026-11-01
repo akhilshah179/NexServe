@@ -18,10 +18,30 @@
 
 import axios from "axios";
 
+/**
+ * Determine and normalize the API Base URL:
+ * 1. Uses VITE_API_BASE_URL if explicitly provided.
+ * 2. In production (import.meta.env.PROD), defaults to "https://nexserve.onrender.com/api/v1".
+ * 3. In local development, defaults to "/api/v1" (proxied to localhost:8000 by Vite).
+ * Automatically ensures full URLs include the "/api/v1" prefix.
+ */
+export function getApiBaseUrl() {
+  const configured = import.meta.env.VITE_API_BASE_URL;
+  const defaultUrl = import.meta.env.PROD ? "https://nexserve.onrender.com/api/v1" : "/api/v1";
+  const url = (configured || defaultUrl).trim().replace(/\/+$/, "");
+
+  if (url.startsWith("http://") || url.startsWith("https://")) {
+    if (!url.endsWith("/api/v1") && !url.endsWith("/api")) {
+      return `${url}/api/v1`;
+    }
+    return url;
+  }
+
+  return url || "/api/v1";
+}
+
 const api = axios.create({
-  // In development, Vite's proxy forwards /api to http://localhost:8000
-  // In production, uses configured VITE_API_BASE_URL or falls back to /api/v1
-  baseURL: import.meta.env.VITE_API_BASE_URL || "/api/v1",
+  baseURL: getApiBaseUrl(),
   headers: {
     "Content-Type": "application/json",
   },
