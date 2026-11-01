@@ -79,6 +79,25 @@ export function initials(name = "") {
 }
 
 /**
+ * Safely extract an array from any data response (handles direct array, { items: [] }, { data: [] }, { results: [] }, or custom key).
+ * Returns an empty array if data is null, undefined, error object, or invalid.
+ */
+export function toArray(data, key = null) {
+  if (Array.isArray(data)) return data;
+  if (data && typeof data === "object") {
+    if (key && Array.isArray(data[key])) return data[key];
+    if (Array.isArray(data.items)) return data.items;
+    if (Array.isArray(data.data)) return data.data;
+    if (Array.isArray(data.results)) return data.results;
+    if (Array.isArray(data.services)) return data.services;
+    if (Array.isArray(data.providers)) return data.providers;
+    if (Array.isArray(data.bookings)) return data.bookings;
+    if (Array.isArray(data.reviews)) return data.reviews;
+  }
+  return [];
+}
+
+/**
  * Turn an axios/FastAPI error into a sentence a person can act on.
  * FastAPI returns `detail` as a string or a list of validation errors.
  */

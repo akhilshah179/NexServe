@@ -76,7 +76,7 @@ import {
   ArrowRight,
 } from "lucide-react";
 import { Avatar, Button, ButtonLink, StatCard, Switch, Tabs, Reveal, useToast } from "../components/ui";
-import { formatINR, getErrorMessage } from "../lib/format";
+import { formatINR, getErrorMessage, toArray } from "../lib/format";
 
 export default function ProviderDashboard() {
   const { user, updateUser } = useAuth();
@@ -171,15 +171,16 @@ export default function ProviderDashboard() {
         getRentalCategories().catch(() => []),
         getMyRentalItems().catch(() => []),
       ]);
-      setServices(servData || []);
-      setBookings(bookData || []);
-      setReviews(revData || []);
-      setRentalBookings(rentBookData || []);
-      setRentalCategories(rentCats || []);
-      if (rentCats && rentCats.length > 0 && !rentalForm.category_id) {
-        setRentalForm((prev) => ({ ...prev, category_id: rentCats[0].id }));
+      setServices(toArray(servData));
+      setBookings(toArray(bookData));
+      setReviews(toArray(revData));
+      setRentalBookings(toArray(rentBookData));
+      const safeRentCats = toArray(rentCats);
+      setRentalCategories(safeRentCats);
+      if (safeRentCats.length > 0 && !rentalForm.category_id) {
+        setRentalForm((prev) => ({ ...prev, category_id: safeRentCats[0].id }));
       }
-      setRentalItems(myRentItemsData || []);
+      setRentalItems(toArray(myRentItemsData));
     } catch (err) {
       console.warn("Failed to fetch provider dashboard data:", err);
     } finally {
@@ -489,13 +490,15 @@ export default function ProviderDashboard() {
 
 
   // KPI calculations
-  const totalEarnings = bookings
+  const safeBookings = toArray(bookings);
+  const safeRentalBookings = toArray(rentalBookings);
+  const totalEarnings = safeBookings
     .filter((b) => b.status === "completed")
     .reduce((sum, b) => sum + (b.total_amount || 0), 0);
 
-  const pendingCount = bookings.filter((b) => ["pending", "requested"].includes(b.status)).length;
-  const inTransitCount = bookings.filter((b) => ["confirmed", "provider_on_the_way", "in_progress"].includes(b.status)).length;
-  const completedCount = bookings.filter((b) => b.status === "completed").length;
+  const pendingCount = safeBookings.filter((b) => ["pending", "requested"].includes(b.status)).length;
+  const inTransitCount = safeBookings.filter((b) => ["confirmed", "provider_on_the_way", "in_progress"].includes(b.status)).length;
+  const completedCount = safeBookings.filter((b) => b.status === "completed").length;
 
   // Verification Status Checks
   const isApproved = user?.verification_status === "approved";
@@ -633,13 +636,13 @@ export default function ProviderDashboard() {
         <StatCard label="Pending requests" value={pendingCount} icon={Inbox} tone="amber" />
         <StatCard
           label="Active rentals"
-          value={rentalBookings.filter((b) => ["RENTED", "RETURN_PENDING", "CONFIRMED"].includes(b.status)).length}
+          value={safeRentalBookings.filter((b) => ["RENTED", "RETURN_PENDING", "CONFIRMED"].includes(b.status)).length}
           icon={PackageOpen}
           tone="teal"
         />
         <StatCard
           label="Jobs & rentals done"
-          value={completedCount + rentalBookings.filter((b) => b.status === "COMPLETED").length}
+          value={completedCount + safeRentalBookings.filter((b) => b.status === "COMPLETED").length}
           icon={CheckCircle2}
           tone="indigo"
         />
@@ -847,18 +850,18 @@ export default function ProviderDashboard() {
             {/* Rental Status Filter Pills */}
             <div className="flex items-center gap-2 overflow-x-auto pb-2 border-b border-white/[0.06] scrollbar-none">
               {[
-                { id: "all", label: "All Orders", count: rentalBookings.length },
-                { id: "requests", label: "New Requests", count: rentalBookings.filter((b) => b.status === "REQUESTED").length },
+                { id: "all", label: "All Orders", count: safeRentalBookings.length },
+                { id: "requests", label: "New Requests", count: safeRentalBookings.filter((b) => b.status === "REQUESTED").length },
                 {
                   id: "upcoming",
                   label: "Upcoming / Ready",
-                  count: rentalBookings.filter((b) =>
+                  count: safeRentalBookings.filter((b) =>
                     ["CONFIRMED", "PAYMENT_COMPLETED", "READY_FOR_PICKUP", "READY_FOR_DELIVERY"].includes(b.status)
                   ).length,
                 },
-                { id: "active", label: "Active Rentals", count: rentalBookings.filter((b) => b.status === "RENTED" || b.status === "RETURN_PENDING").length },
-                { id: "completed", label: "Completed", count: rentalBookings.filter((b) => ["COMPLETED", "RETURNED", "INSPECTED"].includes(b.status)).length },
-                { id: "cancelled", label: "Cancelled / Disputes", count: rentalBookings.filter((b) => ["CANCELLED", "REJECTED", "DAMAGE_REPORTED"].includes(b.status)).length },
+                { id: "active", label: "Active Rentals", count: safeRentalBookings.filter((b) => b.status === "RENTED" || b.status === "RETURN_PENDING").length },
+                { id: "completed", label: "Completed", count: safeRentalBookings.filter((b) => ["COMPLETED", "RETURNED", "INSPECTED"].includes(b.status)).length },
+                { id: "cancelled", label: "Cancelled / Disputes", count: safeRentalBookings.filter((b) => ["CANCELLED", "REJECTED", "DAMAGE_REPORTED"].includes(b.status)).length },
               ].map((pill) => (
                 <button
                   key={pill.id}
@@ -894,7 +897,7 @@ export default function ProviderDashboard() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-white/[0.06]">
-                    {rentalBookings
+                    {safeRentalBookings
                       .filter((rb) => {
                         if (rentalStatusFilter === "all") return true;
                         if (rentalStatusFilter === "requests") return rb.status === "REQUESTED";
@@ -1152,7 +1155,7 @@ export default function ProviderDashboard() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-white/[0.06]">
-                {bookings
+                {safeBookings
                   .filter((b) => b.status === "completed")
                   .map((b) => (
                     <tr key={b.id}>

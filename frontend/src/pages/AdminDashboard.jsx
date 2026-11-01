@@ -17,7 +17,7 @@ import { useState, useEffect } from "react";
 import { useAuth } from "../context/AuthContext";
 import { Plus, Users, BadgeCheck, LayoutGrid, CalendarClock, Wallet } from "lucide-react";
 import { Button, StatCard, Tabs, Reveal, useToast } from "../components/ui";
-import { formatINR, getErrorMessage } from "../lib/format";
+import { formatINR, getErrorMessage, toArray } from "../lib/format";
 import {
   getAdminStats,
   getPendingProvidersApi,
@@ -90,14 +90,14 @@ export default function AdminDashboard() {
       ]);
 
       setStats(statsData);
-      setPendingProviders(pendingData || []);
-      setUsers(usersData || []);
-      setBookings(bookingsData || []);
-      setPayments(paymentsData || []);
-      setMessages(messagesData || []);
-      setCategories(categoriesData || []);
-      setAuditLogs(auditData || []);
-      setDamageClaims(damageClaimsData || []);
+      setPendingProviders(toArray(pendingData));
+      setUsers(toArray(usersData));
+      setBookings(toArray(bookingsData));
+      setPayments(toArray(paymentsData));
+      setMessages(toArray(messagesData));
+      setCategories(toArray(categoriesData));
+      setAuditLogs(toArray(auditData));
+      setDamageClaims(toArray(damageClaimsData));
     } catch (err) {
       console.warn("Failed to load admin dashboard data:", err);
     } finally {

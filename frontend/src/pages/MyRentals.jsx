@@ -49,7 +49,7 @@ import {
 } from "../components/ui";
 import { rentalLifecycle, rentalStepIndex, RENTAL_GROUPS } from "../lib/status";
 import { rentalImage, rentalVisual } from "../lib/visuals";
-import { formatINR, formatDate, formatDateShort, daysBetween, getErrorMessage } from "../lib/format";
+import { formatINR, formatDate, formatDateShort, daysBetween, getErrorMessage, toArray } from "../lib/format";
 
 export default function MyRentals() {
   const { user } = useAuth();
@@ -74,7 +74,7 @@ export default function MyRentals() {
     try {
       setLoading(true);
       const data = await getMyRentalBookings();
-      setBookings(data || []);
+      setBookings(toArray(data));
     } catch (err) {
       console.error("Failed to load user rentals:", err);
     } finally {
@@ -101,26 +101,27 @@ export default function MyRentals() {
     ) {
       getMyRentalBookings()
         .then((data) => {
-          if (data) setBookings(data);
+          if (data) setBookings(toArray(data));
         })
         .catch(console.warn);
     }
   }, [lastEvent]);
 
   // Summary Metrics
-  const totalBookings = bookings.length;
-  const activeCount = bookings.filter(
+  const safeBookings = toArray(bookings);
+  const totalBookings = safeBookings.length;
+  const activeCount = safeBookings.filter(
     (b) => b.status === "RENTED" || b.status === "RETURN_PENDING"
   ).length;
-  const completedCount = bookings.filter((b) =>
+  const completedCount = safeBookings.filter((b) =>
     ["COMPLETED", "RETURNED", "INSPECTED"].includes(b.status)
   ).length;
-  const totalDepositHeld = bookings
+  const totalDepositHeld = safeBookings
     .filter((b) => b.security_deposit?.status === "HELD")
     .reduce((sum, b) => sum + (b.security_deposit_amount || 0), 0);
 
   // Tab Filtering
-  const filteredBookings = bookings.filter((b) => {
+  const filteredBookings = safeBookings.filter((b) => {
     if (activeTab === "all") return true;
     if (activeTab === "active") return b.status === "RENTED" || b.status === "RETURN_PENDING";
     if (activeTab === "upcoming")
@@ -213,8 +214,8 @@ export default function MyRentals() {
     }
   };
 
-  const upcomingCount = bookings.filter((b) => RENTAL_GROUPS.upcoming.includes(b.status)).length;
-  const cancelledCount = bookings.filter((b) => RENTAL_GROUPS.cancelled.includes(b.status)).length;
+  const upcomingCount = safeBookings.filter((b) => RENTAL_GROUPS.upcoming.includes(b.status)).length;
+  const cancelledCount = safeBookings.filter((b) => RENTAL_GROUPS.cancelled.includes(b.status)).length;
 
   return (
     <div className="pb-24">

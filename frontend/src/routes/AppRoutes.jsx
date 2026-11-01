@@ -11,6 +11,7 @@ import { ToastProvider } from "../components/ui";
 import ProtectedRoute from "./ProtectedRoute";
 import MainLayout from "../layouts/MainLayout";
 import RouteFallback from "./RouteFallback";
+import ErrorBoundary from "../components/common/ErrorBoundary";
 import Home from "../pages/Home";
 import Services from "../pages/Services";
 import About from "../pages/About";
@@ -55,7 +56,8 @@ export default function AppRoutes() {
           <NotificationProvider>
             <BrowserRouter>
               <ScrollToTop />
-              <Routes>
+              <ErrorBoundary>
+                <Routes>
                 {/* Public & Main App Pages */}
                 <Route element={<MainLayout />}>
                   <Route path="/" element={<Home />} />
@@ -119,7 +121,8 @@ export default function AppRoutes() {
                   <Route path="*" element={<NotFound />} />
                 </Route>
               </Routes>
-            </BrowserRouter>
+            </ErrorBoundary>
+          </BrowserRouter>
           </NotificationProvider>
         </ToastProvider>
       </AuthProvider>

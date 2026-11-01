@@ -25,7 +25,7 @@ import {
   cn,
 } from "../components/ui";
 import { rentalVisual } from "../lib/visuals";
-import { formatDateShort, toISODate, daysBetween } from "../lib/format";
+import { formatDateShort, toISODate, daysBetween, toArray } from "../lib/format";
 import {
   CalendarRange,
 
@@ -78,8 +78,8 @@ export default function Rentals() {
             end_date: endDate || undefined,
           }),
         ]);
-        setCategories(catData || []);
-        setItems(itemData || []);
+        setCategories(toArray(catData));
+        setItems(toArray(itemData));
       } catch (err) {
         console.error("Failed to load rental marketplace data:", err);
         setLoadError(true);
@@ -113,7 +113,7 @@ export default function Rentals() {
   };
 
   const filteredItems = useMemo(() => {
-    let result = [...items];
+    let result = [...toArray(items)];
 
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();

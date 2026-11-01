@@ -31,7 +31,7 @@ import {
   cn,
 } from "../components/ui";
 import { serviceVisual } from "../lib/visuals";
-import { formatINR, formatDuration } from "../lib/format";
+import { formatINR, formatDuration, toArray } from "../lib/format";
 
 export default function Services() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -62,8 +62,8 @@ export default function Services() {
       setLoading(true);
       setLoadError(false);
       const [catData, servData] = await Promise.all([getCategories({ includeServices: true }), getServices()]);
-      setCategories(catData || []);
-      setServices(servData || []);
+      setCategories(toArray(catData));
+      setServices(toArray(servData));
     } catch (err) {
       console.warn("Failed to load services data:", err);
       setLoadError(true);
@@ -98,8 +98,10 @@ export default function Services() {
 
   // Group services by category
   const categorizedData = useMemo(() => {
-    return categories.map((cat) => {
-      let catServices = services.filter((s) => s.category_id === cat.id);
+    const cats = toArray(categories);
+    const servs = toArray(services);
+    return cats.map((cat) => {
+      let catServices = servs.filter((s) => s.category_id === cat.id);
 
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase();
@@ -134,7 +136,7 @@ export default function Services() {
       return {
         ...cat,
         matchingServices: catServices,
-        totalServices: services.filter((s) => s.category_id === cat.id).length,
+        totalServices: servs.filter((s) => s.category_id === cat.id).length,
       };
     });
   }, [categories, services, searchQuery, priceFilter, ratingFilter, sortBy]);

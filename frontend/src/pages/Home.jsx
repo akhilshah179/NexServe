@@ -49,6 +49,7 @@ import {
   Reveal,
 } from "../components/ui";
 import { rentalVisual } from "../lib/visuals";
+import { toArray } from "../lib/format";
 import { useToast } from "../components/ui";
 
 export default function Home() {
@@ -79,10 +80,10 @@ export default function Home() {
         getRentalItems(),
         getRentalCategories().catch(() => []),
       ]);
-      setCategories(cats || []);
-      setServices(servs || []);
-      setRentals(items || []);
-      setRentalCategories(rcats || []);
+      setCategories(toArray(cats));
+      setServices(toArray(servs));
+      setRentals(toArray(items));
+      setRentalCategories(toArray(rcats));
     } catch (err) {
       console.warn("Failed to load homepage data:", err);
       setError(true);
@@ -100,7 +101,7 @@ export default function Home() {
     let alive = true;
     setProvidersLoading(true);
     fetchPublicProvidersApi({ city: selectedCity })
-      .then((data) => alive && setProviders(data || []))
+      .then((data) => alive && setProviders(toArray(data)))
       .catch((err) => {
         console.warn("Failed to load providers:", err);
         if (alive) setProviders([]);
@@ -118,41 +119,43 @@ export default function Home() {
 
   const countByCategory = useMemo(() => {
     const m = {};
-    services.forEach((s) => (m[s.category_id] = (m[s.category_id] || 0) + 1));
+    (Array.isArray(services) ? services : []).forEach((s) => (m[s.category_id] = (m[s.category_id] || 0) + 1));
     return m;
   }, [services]);
 
   // Most-booked service from each category, so the row spans the marketplace.
   const trending = useMemo(() => {
+    const list = Array.isArray(services) ? services : [];
     const score = (s) => (s.review_count || 0) * (s.rating || 0);
     const seen = new Set();
-    return [...services]
+    return [...list]
       .sort((a, b) => score(b) - score(a))
       .filter((s) => (seen.has(s.category_id) ? false : seen.add(s.category_id)))
       .slice(0, 6);
   }, [services]);
 
-  const topProviders = useMemo(
-    () => [...providers].sort((a, b) => (b.rating || 0) - (a.rating || 0) || (b.review_count || 0) - (a.review_count || 0)).slice(0, 4),
-    [providers]
-  );
+  const topProviders = useMemo(() => {
+    const list = Array.isArray(providers) ? providers : [];
+    return [...list].sort((a, b) => (b.rating || 0) - (a.rating || 0) || (b.review_count || 0) - (a.review_count || 0)).slice(0, 4);
+  }, [providers]);
 
-  const featuredRentals = useMemo(
-    () => [...rentals].sort((a, b) => (b.review_count || 0) - (a.review_count || 0)).slice(0, 4),
-    [rentals]
-  );
+  const featuredRentals = useMemo(() => {
+    const list = Array.isArray(rentals) ? rentals : [];
+    return [...list].sort((a, b) => (b.review_count || 0) - (a.review_count || 0)).slice(0, 4);
+  }, [rentals]);
 
   const avgRating = useMemo(() => {
-    const r = providers.filter((p) => Number(p.rating) > 0);
+    const list = Array.isArray(providers) ? providers : [];
+    const r = list.filter((p) => Number(p.rating) > 0);
     return r.length ? r.reduce((s, p) => s + Number(p.rating), 0) / r.length : 0;
   }, [providers]);
 
-  const popular = categories.slice(0, 4).map((c) => ({ label: c.name, to: `/services?category=${c.id}` }));
+  const popular = (Array.isArray(categories) ? categories : []).slice(0, 4).map((c) => ({ label: c.name, to: `/services?category=${c.id}` }));
 
   const stats = [
-    { label: "Verified professionals", value: providers.length, suffix: "", icon: Users, sub: `in ${selectedCity}` },
-    { label: "Services to book", value: services.length, suffix: "", icon: LayoutGrid, sub: `${categories.length} categories` },
-    { label: "Items to rent", value: rentals.length, suffix: "", icon: Package, sub: `${rentalCategories.length || "Multiple"} categories` },
+    { label: "Verified professionals", value: (Array.isArray(providers) ? providers : []).length, suffix: "", icon: Users, sub: `in ${selectedCity}` },
+    { label: "Services to book", value: (Array.isArray(services) ? services : []).length, suffix: "", icon: LayoutGrid, sub: `${(Array.isArray(categories) ? categories : []).length} categories` },
+    { label: "Items to rent", value: (Array.isArray(rentals) ? rentals : []).length, suffix: "", icon: Package, sub: `${(Array.isArray(rentalCategories) ? rentalCategories : []).length || "Multiple"} categories` },
     { label: "Average pro rating", value: avgRating, format: (n) => n.toFixed(1), icon: Star, sub: "From customer reviews" },
   ];
 

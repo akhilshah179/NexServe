@@ -52,7 +52,7 @@ import {
 } from "../components/ui";
 import { BOOKING_GROUPS } from "../lib/status";
 import { serviceVisual } from "../lib/visuals";
-import { formatINR, formatDate } from "../lib/format";
+import { formatINR, formatDate, toArray } from "../lib/format";
 
 export default function Dashboard() {
   const { user, updateUser } = useAuth();
@@ -91,8 +91,8 @@ export default function Dashboard() {
         getMyBookings(),
         getCategories(),
       ]);
-      setBookings(bookingsData || []);
-      setCategories(catData || []);
+      setBookings(toArray(bookingsData));
+      setCategories(toArray(catData));
       setLoadError(false);
     } catch (err) {
       console.warn("Failed to load customer dashboard data:", err);
@@ -184,20 +184,21 @@ export default function Dashboard() {
     }
   };
 
-  const totalSpent = bookings
+  const safeBookings = toArray(bookings);
+  const totalSpent = safeBookings
     .filter((b) => b.status === "completed" || b.status === "confirmed")
     .reduce((sum, b) => sum + (Number(b.total_amount) || 0), 0);
 
-  const activeBooking = bookings.find((b) =>
+  const activeBooking = safeBookings.find((b) =>
     ["pending", "requested", "confirmed", "provider_on_the_way", "in_progress"].includes(b.status)
   );
 
   const hour = new Date().getHours();
   const greeting = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
   const firstName = user?.full_name?.split(" ")[0] || "there";
-  const activeCount = bookings.filter((b) => BOOKING_GROUPS.upcoming.includes(b.status)).length;
-  const completedCount = bookings.filter((b) => b.status === "completed").length;
-  const recent = bookings.slice(0, 5);
+  const activeCount = safeBookings.filter((b) => BOOKING_GROUPS.upcoming.includes(b.status)).length;
+  const completedCount = safeBookings.filter((b) => b.status === "completed").length;
+  const recent = safeBookings.slice(0, 5);
 
   return (
     <div className="pb-24">

@@ -26,6 +26,7 @@ import {
   cn,
 } from "../components/ui";
 import { serviceVisual } from "../lib/visuals";
+import { toArray } from "../lib/format";
 
 export default function ServiceProviders() {
   const { categoryId } = useParams();
@@ -53,8 +54,8 @@ export default function ServiceProviders() {
         getServices({ categoryId }),
       ]);
       setCategory(catData);
-      setProviders(provData || []);
-      setServices(svcData || []);
+      setProviders(toArray(provData));
+      setServices(toArray(svcData));
     } catch (err) {
       console.warn("Failed to load category details:", err);
       setError(err.response?.status === 404 ? "notfound" : "Failed to load category data.");
@@ -68,7 +69,7 @@ export default function ServiceProviders() {
   }, [fetchData]);
 
   const servicesByProvider = {};
-  services.forEach((svc) => {
+  toArray(services).forEach((svc) => {
     if (!servicesByProvider[svc.provider_id]) {
       servicesByProvider[svc.provider_id] = [];
     }

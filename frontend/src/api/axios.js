@@ -46,7 +46,21 @@ api.interceptors.request.use(
 // ── Response Interceptor ─────────────────────────────
 // Runs AFTER every response. Catches auth errors globally.
 api.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    // Detect HTML responses returned with 200 OK (e.g. SPA rewrites when VITE_API_BASE_URL is missing or wrong)
+    const contentType = response.headers?.["content-type"] || "";
+    if (
+      contentType.includes("text/html") ||
+      (typeof response.data === "string" && (response.data.trim().startsWith("<!DOCTYPE") || response.data.trim().startsWith("<html") || response.data.trim().startsWith("<!doctype")))
+    ) {
+      return Promise.reject(
+        new Error(
+          "API endpoint returned an HTML page instead of JSON. Check that VITE_API_BASE_URL is correctly set to your backend URL in production."
+        )
+      );
+    }
+    return response;
+  },
   (error) => {
     if (error.response?.status === 401) {
       // Token expired or invalid — clear it from storage

@@ -45,7 +45,7 @@ import {
   cn,
 } from "../components/ui";
 import { serviceVisual } from "../lib/visuals";
-import { formatINR, formatDuration, formatDate } from "../lib/format";
+import { formatINR, formatDuration, formatDate, toArray } from "../lib/format";
 
 export default function ProviderDetail() {
   const { providerId } = useParams();
@@ -70,8 +70,8 @@ export default function ProviderDetail() {
         fetchProviderReviewsApi(Number(providerId)).catch(() => []),
       ]);
       setProvider(provData);
-      setServices(servsData || []);
-      setReviews(revsData || []);
+      setServices(toArray(servsData));
+      setReviews(toArray(revsData));
     } catch (err) {
       console.warn("Failed to load provider profile:", err);
       setLoadError(err.response?.status === 404 ? "notfound" : "error");
@@ -85,8 +85,9 @@ export default function ProviderDetail() {
   }, [providerId, loadData]);
 
   const ratingBreakdown = useMemo(() => {
-    const counts = [5, 4, 3, 2, 1].map((star) => ({ star, n: reviews.filter((r) => Math.round(r.rating) === star).length }));
-    const avg = reviews.length ? reviews.reduce((a, r) => a + Number(r.rating || 0), 0) / reviews.length : null;
+    const list = toArray(reviews);
+    const counts = [5, 4, 3, 2, 1].map((star) => ({ star, n: list.filter((r) => Math.round(r.rating) === star).length }));
+    const avg = list.length ? list.reduce((a, r) => a + Number(r.rating || 0), 0) / list.length : null;
     return { counts, avg };
   }, [reviews]);
 

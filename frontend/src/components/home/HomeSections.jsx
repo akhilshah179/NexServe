@@ -177,14 +177,15 @@ export function VerificationVisual() {
  */
 export function Testimonials({ providers }) {
   const [reviews, setReviews] = useState(null);
+  const safeProviders = Array.isArray(providers) ? providers : [];
 
   useEffect(() => {
-    if (!providers.length) {
+    if (!safeProviders.length) {
       setReviews([]);
       return;
     }
     let alive = true;
-    const top = [...providers].sort((a, b) => (b.review_count || 0) - (a.review_count || 0)).slice(0, 6);
+    const top = [...safeProviders].sort((a, b) => (b.review_count || 0) - (a.review_count || 0)).slice(0, 6);
     Promise.allSettled(top.map((p) => fetchProviderReviewsApi(p.id))).then((results) => {
       if (!alive) return;
       const list = [];
@@ -201,7 +202,7 @@ export function Testimonials({ providers }) {
     };
   }, [providers]);
 
-  const rated = providers.filter((p) => Number(p.rating) > 0);
+  const rated = safeProviders.filter((p) => Number(p.rating) > 0);
   const totalReviews = rated.reduce((s, p) => s + (Number(p.review_count) || 0), 0);
   const avg = rated.length ? rated.reduce((s, p) => s + Number(p.rating), 0) / rated.length : 0;
 

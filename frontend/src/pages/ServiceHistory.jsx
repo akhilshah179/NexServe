@@ -44,7 +44,7 @@ import {
 } from "../components/ui";
 import { BOOKING_GROUPS, BOOKING_STEPS, bookingStepIndex, humanize } from "../lib/status";
 import { serviceVisual } from "../lib/visuals";
-import { formatINR, formatINRPrecise, formatDate, formatTime } from "../lib/format";
+import { formatINR, formatINRPrecise, formatDate, formatTime, toArray } from "../lib/format";
 
 export default function ServiceHistory() {
   const [bookings, setBookings] = useState([]);
@@ -60,7 +60,7 @@ export default function ServiceHistory() {
     setLoadError(false);
     try {
       const data = await getMyBookings();
-      setBookings(data || []);
+      setBookings(toArray(data));
     } catch (err) {
       console.error("Failed to load service history:", err);
       setLoadError(true);
@@ -73,21 +73,22 @@ export default function ServiceHistory() {
     loadBookings();
   }, []);
 
-  const totalBookings = bookings.length;
-  const completedBookings = bookings.filter((b) => b.status === "completed").length;
-  const activeBookings = bookings.filter((b) => BOOKING_GROUPS.upcoming.includes(b.status)).length;
-  const totalSpent = bookings
+  const safeBookings = toArray(bookings);
+  const totalBookings = safeBookings.length;
+  const completedBookings = safeBookings.filter((b) => b.status === "completed").length;
+  const activeBookings = safeBookings.filter((b) => BOOKING_GROUPS.upcoming.includes(b.status)).length;
+  const totalSpent = safeBookings
     .filter((b) => b.status === "completed" || b.status === "confirmed")
     .reduce((sum, b) => sum + (Number(b.total_amount) || 0), 0);
 
-  const filteredBookings = bookings.filter((b) => {
+  const filteredBookings = safeBookings.filter((b) => {
     if (filter === "completed") return b.status === "completed";
     if (filter === "upcoming") return BOOKING_GROUPS.upcoming.includes(b.status);
     if (filter === "cancelled") return ["cancelled", "rejected"].includes(b.status);
     return true;
   });
 
-  const cancelledCount = bookings.filter((b) => BOOKING_GROUPS.cancelled.includes(b.status)).length;
+  const cancelledCount = safeBookings.filter((b) => BOOKING_GROUPS.cancelled.includes(b.status)).length;
 
   const visibleBookings = useMemo(() => {
     const q = query.trim().toLowerCase();

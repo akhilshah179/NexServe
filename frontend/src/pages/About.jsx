@@ -21,6 +21,7 @@ import {
 import { getCategories, getServices } from "../api/servicesApi";
 import { fetchPublicProvidersApi } from "../api/providersApi";
 import { getRentalItems } from "../api/rentalsApi";
+import { toArray } from "../lib/format";
 import { HowItWorks } from "../components/home/HomeSections";
 import { Section, SectionHeader, ButtonLink, Reveal, Stagger, StaggerItem, AnimatedNumber, Breadcrumbs } from "../components/ui";
 import { unsplash } from "../lib/visuals";
@@ -43,13 +44,13 @@ export default function About() {
 
   useEffect(() => {
     Promise.allSettled([getServices(), fetchPublicProvidersApi({}), getRentalItems(), getCategories()]).then(([s, p, r, c]) => {
-      const providers = p.status === "fulfilled" ? p.value || [] : [];
+      const providers = p.status === "fulfilled" ? toArray(p.value) : [];
       const rated = providers.filter((x) => Number(x.rating) > 0);
       setStats({
-        services: s.status === "fulfilled" ? (s.value || []).length : null,
+        services: s.status === "fulfilled" ? toArray(s.value).length : null,
         providers: providers.length || null,
-        rentals: r.status === "fulfilled" ? (r.value || []).length : null,
-        categories: c.status === "fulfilled" ? (c.value || []).length : null,
+        rentals: r.status === "fulfilled" ? toArray(r.value).length : null,
+        categories: c.status === "fulfilled" ? toArray(c.value).length : null,
         rating: rated.length ? rated.reduce((a, x) => a + Number(x.rating), 0) / rated.length : null,
       });
     });
